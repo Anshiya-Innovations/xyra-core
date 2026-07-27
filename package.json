@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@cap-js/sqlite": "^3.0.2",
+    "@sap/cds": "^10.0.4"
+  },
+  "devDependencies": {
+    "@sap/cds-dk": "^10.0.6"
+  }
+}

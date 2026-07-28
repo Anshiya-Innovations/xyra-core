@@ -10,7 +10,7 @@
 // Usage: node scripts/create-test-users.js <tenant_database_name>
 
 const cds = require('@sap/cds')
-const { connectToTenantDb, tenantEntities } = require('../lib/provisioning/capDeploy')
+const { getPool, tenantEntities } = require('../lib/tenant/TenantPoolManager')
 const { hashPassword } = require('../lib/auth/password')
 
 const TEST_PASSWORD = 'Test@1234'
@@ -26,7 +26,10 @@ async function main() {
   const dbName = process.argv[2]
   if (!dbName) throw new Error('Usage: node scripts/create-test-users.js <tenant_database_name>')
 
-  const tenantDb = await connectToTenantDb(dbName)
+  // ponytail: this standalone script only ever knows the database name, not the
+  // real tenant UUID — using dbName as the pool key is fine here since this
+  // process's cache never overlaps with the running server's.
+  const tenantDb = await getPool(dbName, dbName)
   const { Users, Roles } = await tenantEntities()
 
   for (const u of TEST_USERS) {

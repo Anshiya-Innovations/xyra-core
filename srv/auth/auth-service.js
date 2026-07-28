@@ -1,5 +1,5 @@
 const cds = require('@sap/cds')
-const { connectToTenantDb, tenantEntities } = require('../../lib/provisioning/capDeploy')
+const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { verifyPassword } = require('../../lib/auth/password')
 const { fullDomainFor } = require('../../lib/platform')
 
@@ -32,7 +32,7 @@ module.exports = function (srv) {
     const job = await masterTx.run(SELECT.one.from(Provisioning).where({ tenant_ID: domain.tenant_ID }))
     if (!job || !job.databaseName) return fail('Tenant database is not available.')
 
-    const tenantDb = await connectToTenantDb(job.databaseName)
+    const tenantDb = await getPool(tenant.ID, job.databaseName)
     const { Users, Roles } = await tenantEntities()
 
     // Same reasoning for the tenant DB side — one shared tx for the user + role

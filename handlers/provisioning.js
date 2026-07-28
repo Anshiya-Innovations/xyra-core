@@ -62,7 +62,7 @@ async function runProvisioning(tenantId) {
     await updateJob(job.ID, { currentStep: step })
 
     step = 'DEPLOY_SCHEMA'
-    const tenantDb = await deployTenantSchema(dbName)
+    const tenantDb = await deployTenantSchema(tenantId, dbName)
     await updateJob(job.ID, { currentStep: step })
 
     step = 'SEED_DATA'

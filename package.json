@@ -8,12 +8,18 @@
   "devDependencies": {
     "@sap/cds-dk": "^10.0.6"
   },
+  "scripts": {
+    "start": "cds watch"
+  },
   "cds": {
     "requires": {
       "db": {
         "kind": "postgres",
         "pool": { "acquireTimeoutMillis": 10000 }
       }
+    },
+    "server": {
+      "cors": false
     }
   }
 }

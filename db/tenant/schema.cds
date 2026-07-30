@@ -4,10 +4,12 @@
 using from './role';
 using from './user';
 using from './permission';
+using from './reference';
 using from './sap';
 using from './rules';
 using from './alerts';
 using from './reviews';
+using from './history';
 using from './scheduler';
 using from './dashboard';
 using from './reports';

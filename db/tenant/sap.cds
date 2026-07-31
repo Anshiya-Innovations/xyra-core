@@ -26,6 +26,7 @@ entity Systems : cuid, managed {
     tier            : SystemTier not null;
     systemName      : String(100);
     systemCompName  : String(100);
+    hostName        : String(255);
     platform        : Association to Platforms;
     region          : Association to Regions;
     sector          : Association to Sectors;
@@ -41,12 +42,15 @@ entity Systems : cuid, managed {
 
 // Credentials used to connect and pull data from a System. Kept as its own entity
 // (not columns on Systems) so the sensitive field is isolated to one narrow table.
-// ponytail: passwordHash stored the same way as Users' login passwords for now —
-// swap for a real secrets-manager reference (e.g. AWS Secrets Manager ARN) once
-// this needs to survive a security review; a plain encrypted column is the
-// pre-vault stopgap, not the end state.
+// Either userId+passwordHash (basic auth, for the control-script use case) or
+// jwtToken (bearer auth, for the Configuration page's connection setup) —
+// neither pair is required since a given system uses one or the other.
+// ponytail: passwordHash/jwtToken stored in plain columns for now — swap for a
+// real secrets-manager reference (e.g. AWS Secrets Manager ARN) once this needs
+// to survive a security review; this is the pre-vault stopgap, not the end state.
 entity SystemCredentials : cuid, managed {
     system       : Association to Systems not null;
-    userId       : String(50) not null;
-    passwordHash : String(300) not null;
+    userId       : String(50);
+    passwordHash : String(300);
+    jwtToken     : LargeString;
 }

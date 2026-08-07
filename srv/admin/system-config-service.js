@@ -1,11 +1,30 @@
-const net = require('net')
 const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 
+// The Add/Edit System dialog captures Region/Platform/Sector as one free-text
+// field, not a code+description pair — the typed text becomes both, and a
+// second system reusing the same text (e.g. two systems both "North America")
+// resolves to the same reference row instead of creating a duplicate.
+async function resolveRefId(tx, Entity, rawValue) {
+  const value = (rawValue || '').trim()
+  if (!value) return null
+  const existing = await tx.run(SELECT.one.from(Entity).where({ code: value }))
+  if (existing) return existing.ID
+  const id = cds.utils.uuid()
+  await tx.run(INSERT.into(Entity).entries({ ID: id, code: value, description: value }))
+  return id
+}
+
+// SystemTier enum ('PRODUCTION') <-> the UI's Select values ('Production').
+function titleCase(s) {
+  if (!s) return ''
+  return s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 module.exports = function (srv) {
-  srv.on('getSystemConnection', async (req) => {
-    const fail = (message) => ({ success: false, message, hasConnection: false })
+  srv.on('listSystems', async (req) => {
+    const fail = (message) => ({ success: false, message, systems: [] })
     const subdomain = (req.data.subdomain || '').trim()
     if (!subdomain) return fail('subdomain is required.')
 
@@ -17,99 +36,155 @@ module.exports = function (srv) {
 
     const tx = tenantDb.tx()
     try {
-      // ponytail: "the first row" — this page manages one primary connection per
-      // tenant for now. If multi-system monitoring (the SOP-based Rules/Alerts
-      // feature) starts creating more Systems rows later, this'll need a proper
-      // "which one is the primary connection" marker instead.
-      const system = await tx.run(SELECT.one.from(Systems))
-      if (!system) return { success: true, message: 'No connection configured yet.', hasConnection: false }
+      const rows = await tx.run(
+        SELECT.from(Systems)
+          .columns(
+            'ID', 'systemId', 'client', 'tier', 'hostName', 'systemCompName',
+            'clientType', 'version', 'logonGroup', 'port', 'instanceNo', 'status',
+            'platform.code as platform', 'region.code as region', 'sector.code as sector'
+          )
+          .orderBy('createdAt desc')
+      )
 
-      return {
-        success: true,
-        message: 'OK',
-        hasConnection: true,
-        systemName: system.systemName,
-        hostName: system.hostName,
-        systemId: system.systemId,
-        client: system.client,
-        instanceNo: system.instanceNo,
-        port: system.port,
-        status: system.status
-      }
+      const systems = rows.map((r) => ({
+        id: r.ID,
+        sysId: r.systemId,
+        client: r.client,
+        sysType: titleCase(r.tier),
+        hostName: r.hostName,
+        sysDetails: r.systemCompName || '',
+        sector: r.sector || '',
+        platform: r.platform || '',
+        region: r.region || '',
+        clientType: r.clientType || '',
+        sysVersion: r.version || '',
+        logonGroup: r.logonGroup || '',
+        portNumber: r.port,
+        instanceNo: r.instanceNo || '',
+        status: r.status
+      }))
+
+      return { success: true, message: 'OK', systems }
     } finally {
       await tx.commit()
     }
   })
 
-  srv.on('saveSystemConnection', async (req) => {
+  srv.on('createSystem', async (req) => {
     const fail = (message) => ({ success: false, message })
     const subdomain = (req.data.subdomain || '').trim()
-    const systemId = (req.data.systemId || '').trim()
+    const sysId = (req.data.sysId || '').trim()
     const client = (req.data.client || '').trim()
-    if (!subdomain || !systemId || !client) return fail('System ID and Client are required.')
+    const hostName = (req.data.hostName || '').trim()
+    if (!subdomain || !sysId || !client || !hostName) return fail('System ID, Client, and Host Name are required.')
 
     const resolved = await resolveTenantBySubdomain(req, subdomain)
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Systems, SystemCredentials } = await tenantEntities()
+    const { Systems, Regions, Platforms, Sectors } = await tenantEntities()
 
     const tx = tenantDb.tx()
     try {
-      const existing = await tx.run(SELECT.one.from(Systems))
+      const existing = await tx.run(SELECT.one.from(Systems).where({ systemId: sysId, client }))
+      if (existing) return fail(`System ${sysId} / Client ${client} already exists.`)
 
-      const fields = {
-        systemId,
+      const [platformId, regionId, sectorId] = await Promise.all([
+        resolveRefId(tx, Platforms, req.data.platform),
+        resolveRefId(tx, Regions, req.data.region),
+        resolveRefId(tx, Sectors, req.data.sector)
+      ])
+
+      const id = cds.utils.uuid()
+      await tx.run(INSERT.into(Systems).entries({
+        ID: id,
+        systemId: sysId,
         client,
-        systemName: req.data.systemName || null,
-        hostName: req.data.hostName || null,
+        tier: (req.data.sysType || 'QUALITY').toUpperCase(),
+        systemCompName: req.data.sysDetails || null,
+        hostName,
+        platform_ID: platformId,
+        region_ID: regionId,
+        sector_ID: sectorId,
+        version: req.data.sysVersion || null,
+        logonGroup: req.data.logonGroup || null,
+        port: req.data.portNumber || null,
         instanceNo: req.data.instanceNo || null,
-        port: req.data.port || null
-      }
+        clientType: req.data.clientType || null,
+        status: 'ACTIVE'
+      }))
 
-      let systemDbId
-      if (existing) {
-        systemDbId = existing.ID
-        await tx.run(UPDATE(Systems).set(fields).where({ ID: systemDbId }))
-      } else {
-        systemDbId = cds.utils.uuid()
-        await tx.run(INSERT.into(Systems).entries({ ID: systemDbId, tier: 'PRODUCTION', status: 'ACTIVE', ...fields }))
-      }
-
-      if (req.data.jwtToken) {
-        const creds = await tx.run(SELECT.one.from(SystemCredentials).where({ system_ID: systemDbId }))
-        if (creds) {
-          await tx.run(UPDATE(SystemCredentials).set({ jwtToken: req.data.jwtToken }).where({ ID: creds.ID }))
-        } else {
-          await tx.run(INSERT.into(SystemCredentials).entries({ ID: cds.utils.uuid(), system_ID: systemDbId, jwtToken: req.data.jwtToken }))
-        }
-      }
-
-      return { success: true, message: 'Configuration saved.' }
+      return { success: true, message: 'System created.', id }
     } finally {
       await tx.commit()
     }
   })
 
-  srv.on('testSystemConnection', async (req) => {
-    const hostName = (req.data.hostName || '').trim()
-    const port = Number(req.data.port)
-    if (!hostName || !port) return { success: false, message: 'Host name and port are required.' }
+  srv.on('updateSystem', async (req) => {
+    const fail = (message) => ({ success: false, message })
+    const subdomain = (req.data.subdomain || '').trim()
+    const id = (req.data.id || '').trim()
+    if (!subdomain || !id) return fail('id is required.')
 
-    return new Promise((resolve) => {
-      const t0 = Date.now()
-      const socket = net.createConnection({ host: hostName, port, timeout: 3000 })
-      socket.on('connect', () => {
-        socket.destroy()
-        resolve({ success: true, message: `Reachable (${Date.now() - t0}ms). Note: this checks TCP connectivity only, not SAP authentication.` })
-      })
-      socket.on('timeout', () => {
-        socket.destroy()
-        resolve({ success: false, message: 'Connection timed out after 3s.' })
-      })
-      socket.on('error', (err) => {
-        resolve({ success: false, message: 'Could not reach host: ' + err.message })
-      })
-    })
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { Systems, Regions, Platforms, Sectors } = await tenantEntities()
+
+    const tx = tenantDb.tx()
+    try {
+      const existing = await tx.run(SELECT.one.from(Systems).where({ ID: id }))
+      if (!existing) return fail('System not found.')
+
+      const [platformId, regionId, sectorId] = await Promise.all([
+        resolveRefId(tx, Platforms, req.data.platform),
+        resolveRefId(tx, Regions, req.data.region),
+        resolveRefId(tx, Sectors, req.data.sector)
+      ])
+
+      await tx.run(UPDATE(Systems).set({
+        client: req.data.client || existing.client,
+        tier: (req.data.sysType || existing.tier || 'QUALITY').toUpperCase(),
+        systemCompName: req.data.sysDetails || null,
+        hostName: req.data.hostName || existing.hostName,
+        platform_ID: platformId,
+        region_ID: regionId,
+        sector_ID: sectorId,
+        version: req.data.sysVersion || null,
+        logonGroup: req.data.logonGroup || null,
+        port: req.data.portNumber || null,
+        instanceNo: req.data.instanceNo || null,
+        clientType: req.data.clientType || null
+      }).where({ ID: id }))
+
+      return { success: true, message: 'System updated.' }
+    } finally {
+      await tx.commit()
+    }
+  })
+
+  srv.on('deleteSystem', async (req) => {
+    const fail = (message) => ({ success: false, message })
+    const subdomain = (req.data.subdomain || '').trim()
+    const id = (req.data.id || '').trim()
+    if (!subdomain || !id) return fail('id is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { Systems } = await tenantEntities()
+
+    const tx = tenantDb.tx()
+    try {
+      const existing = await tx.run(SELECT.one.from(Systems).where({ ID: id }))
+      if (!existing) return fail('System not found.')
+
+      await tx.run(DELETE.from(Systems).where({ ID: id }))
+      return { success: true, message: 'System deleted.' }
+    } finally {
+      await tx.commit()
+    }
   })
 }

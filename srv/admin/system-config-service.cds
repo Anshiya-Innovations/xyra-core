@@ -3,44 +3,74 @@
 @path: '/api/system-config'
 service SystemConfigService {
 
-    action getSystemConnection(
-        subdomain : String
-    ) returns {
-        success    : Boolean;
-        message    : String;
-        hasConnection : Boolean;
-        systemName : String;
-        hostName   : String;
-        systemId   : String;
+    type SystemEntry {
+        id         : String;
+        sysId      : String;
         client     : String;
+        sysType    : String;
+        hostName   : String;
+        sysDetails : String;
+        sector     : String;
+        platform   : String;
+        region     : String;
+        clientType : String;
+        sysVersion : String;
+        logonGroup : String;
+        portNumber : Integer;
         instanceNo : String;
-        port       : Integer;
         status     : String;
     };
 
-    action saveSystemConnection(
+    action listSystems(subdomain: String) returns {
+        success : Boolean;
+        message : String;
+        systems : many SystemEntry;
+    };
+
+    action createSystem(
         subdomain  : String,
-        systemName : String,
-        hostName   : String,
-        systemId   : String,
+        sysId      : String,
         client     : String,
-        instanceNo : String,
-        port       : Integer,
-        jwtToken   : String
+        sysType    : String,
+        hostName   : String,
+        sysDetails : String,
+        sector     : String,
+        platform   : String,
+        region     : String,
+        clientType : String,
+        sysVersion : String,
+        logonGroup : String,
+        portNumber : Integer,
+        instanceNo : String
+    ) returns {
+        success : Boolean;
+        message : String;
+        id      : String;
+    };
+
+    // sysId isn't editable (Configuration's edit dialog disables that field) —
+    // the row is targeted by id, everything else can change.
+    action updateSystem(
+        subdomain  : String,
+        id         : String,
+        client     : String,
+        sysType    : String,
+        hostName   : String,
+        sysDetails : String,
+        sector     : String,
+        platform   : String,
+        region     : String,
+        clientType : String,
+        sysVersion : String,
+        logonGroup : String,
+        portNumber : Integer,
+        instanceNo : String
     ) returns {
         success : Boolean;
         message : String;
     };
 
-    // Basic TCP reachability check against the given host/port — not real SAP
-    // protocol/auth validation (that needs actual RFC/HTTP integration, a
-    // separate ticket). Tests whatever's currently in the form, not necessarily
-    // what's been saved.
-    action testSystemConnection(
-        subdomain : String,
-        hostName  : String,
-        port      : Integer
-    ) returns {
+    action deleteSystem(subdomain: String, id: String) returns {
         success : Boolean;
         message : String;
     };

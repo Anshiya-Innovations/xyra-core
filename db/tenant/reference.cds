@@ -12,21 +12,24 @@ using { cuid, managed } from '@sap/cds/common';
 // change history for config data this rarely-changed and low-volume is tracked in
 // ReferenceChangeLog below instead of one near-identical history table per entity.
 
+// code widened to 50 (from an initial 10) — Configuration's Add/Edit System
+// dialog captures Region/Platform/Sector as one free-text field (e.g. "North
+// America"), not a short code, and that value doubles as the code here.
 @assert.unique: { code: [ code ] }
 entity Regions : cuid, managed {
-    code        : String(10) not null;
+    code        : String(50) not null;
     description : String(100) not null;
 }
 
 @assert.unique: { code: [ code ] }
 entity Platforms : cuid, managed {
-    code        : String(10) not null;
+    code        : String(50) not null;
     description : String(100) not null;
 }
 
 @assert.unique: { code: [ code ] }
 entity Sectors : cuid, managed {
-    code        : String(10) not null;
+    code        : String(50) not null;
     description : String(100) not null;
 }
 

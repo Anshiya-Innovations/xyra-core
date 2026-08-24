@@ -1,13 +1,15 @@
 @path: '/api/auth'
 service AuthService {
 
-    // Resolves the tenant from `subdomain`, then checks email/password against
-    // that tenant's own Users table. No session token yet — nothing downstream
-    // needs to verify one until there are other authenticated endpoints to protect.
+    // Email-only login, pending SSO integration — resolves the tenant from
+    // `subdomain`, then checks whether an active user with that email exists
+    // in that tenant's own Users table. No password: this is an intentional,
+    // temporary trust boundary until the SSO button replaces this form
+    // entirely. No session token yet — nothing downstream needs to verify one
+    // until there are other authenticated endpoints to protect.
     action login(
         subdomain : String,
-        email     : String,
-        password  : String
+        email     : String
     ) returns {
         success  : Boolean;
         message  : String;

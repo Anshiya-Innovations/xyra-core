@@ -7,7 +7,11 @@ using { xyra.tenant.Roles } from './role';
 entity Users : cuid, managed {
     name         : String(100) not null;
     email        : String(150) not null;
-    passwordHash : String(200); // "scrypt:<saltHex>:<hashHex>" — see lib/auth/password.js
+    // "scrypt:<saltHex>:<hashHex>" — see lib/auth/password.js. No longer checked
+    // during login (AuthService.login is email-only pending SSO integration);
+    // kept nullable/around for the Profile change-password feature and as a
+    // fallback auth path for whenever SSO isn't the login route.
+    passwordHash : String(200);
     role         : Association to Roles;
     status       : String(20) default 'ACTIVE'; // ACTIVE, INACTIVE
     phone        : String(20);

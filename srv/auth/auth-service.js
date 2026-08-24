@@ -1,6 +1,5 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
-const { verifyPassword } = require('../../lib/auth/password')
 
 module.exports = function (srv) {
   srv.on('login', async (req) => {
@@ -8,14 +7,13 @@ module.exports = function (srv) {
 
     const subdomain = (req.data.subdomain || '').trim()
     const email = (req.data.email || '').trim()
-    const password = req.data.password || ''
 
-    if (!subdomain || !email || !password) return fail('subdomain, email and password are required.')
+    if (!subdomain || !email) return fail('subdomain and email are required.')
 
-    // Same generic message whether the subdomain, the email, or the password is
-    // wrong — don't give an attacker a way to enumerate which tenants/emails exist.
+    // Same generic message whether the subdomain or the email is wrong — don't
+    // give an attacker a way to enumerate which tenants/emails exist.
     const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Invalid email or password.')
+    if (!resolved) return fail('Email not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
     const { Users, Roles } = await tenantEntities()
@@ -26,10 +24,7 @@ module.exports = function (srv) {
     const tenantTx = tenantDb.tx()
     try {
       const user = await tenantTx.run(SELECT.one.from(Users).where({ email }))
-      if (!user || user.status !== 'ACTIVE') return fail('Invalid email or password.')
-
-      const ok = await verifyPassword(password, user.passwordHash)
-      if (!ok) return fail('Invalid email or password.')
+      if (!user || user.status !== 'ACTIVE') return fail('Email not found.')
 
       const role = user.role_ID ? await tenantTx.run(SELECT.one.from(Roles).where({ ID: user.role_ID })) : null
 

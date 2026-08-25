@@ -1,6 +1,24 @@
 const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
+const { testConnection } = require('../../lib/connection_engine')
+
+// Inserts/updates the one SystemCredentials row for a system. Only touches
+// fields that were actually sent — createSystem always writes (even if
+// empty, there's nothing to preserve yet), updateSystem only writes non-empty
+// ones so leaving the fields blank in the edit dialog keeps what's on file.
+async function upsertCredentials(tx, SystemCredentials, systemId, userId, password, { onlyIfProvided } = {}) {
+  if (onlyIfProvided && !userId && !password) return
+  const existing = await tx.run(SELECT.one.from(SystemCredentials).where({ system_ID: systemId }))
+  const patch = {}
+  if (userId) patch.userId = userId
+  if (password) patch.passwordHash = password
+  if (existing) {
+    if (Object.keys(patch).length) await tx.run(UPDATE(SystemCredentials).set(patch).where({ ID: existing.ID }))
+  } else {
+    await tx.run(INSERT.into(SystemCredentials).entries({ ID: cds.utils.uuid(), system_ID: systemId, ...patch }))
+  }
+}
 
 // The Add/Edit System dialog captures Region/Platform/Sector as one free-text
 // field, not a code+description pair — the typed text becomes both, and a
@@ -40,7 +58,7 @@ module.exports = function (srv) {
         SELECT.from(Systems)
           .columns(
             'ID', 'systemId', 'client', 'tier', 'hostName', 'systemCompName',
-            'clientType', 'version', 'logonGroup', 'port', 'instanceNo', 'status',
+            'clientType', 'version', 'logonGroup', 'port', 'instanceNo', 'status', 'endpoint',
             'platform.code as platform', 'region.code as region', 'sector.code as sector'
           )
           .orderBy('createdAt desc')
@@ -61,7 +79,8 @@ module.exports = function (srv) {
         logonGroup: r.logonGroup || '',
         portNumber: r.port,
         instanceNo: r.instanceNo || '',
-        status: r.status
+        status: r.status,
+        endpoint: r.endpoint || ''
       }))
 
       return { success: true, message: 'OK', systems }
@@ -82,7 +101,7 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Systems, Regions, Platforms, Sectors } = await tenantEntities()
+    const { Systems, SystemCredentials, Regions, Platforms, Sectors } = await tenantEntities()
 
     const tx = tenantDb.tx()
     try {
@@ -111,8 +130,11 @@ module.exports = function (srv) {
         port: req.data.portNumber || null,
         instanceNo: req.data.instanceNo || null,
         clientType: req.data.clientType || null,
+        endpoint: (req.data.endpoint || '').trim() || null,
         status: 'ACTIVE'
       }))
+
+      await upsertCredentials(tx, SystemCredentials, id, (req.data.credUserId || '').trim(), req.data.credPassword || '')
 
       return { success: true, message: 'System created.', id }
     } finally {
@@ -130,7 +152,7 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Systems, Regions, Platforms, Sectors } = await tenantEntities()
+    const { Systems, SystemCredentials, Regions, Platforms, Sectors } = await tenantEntities()
 
     const tx = tenantDb.tx()
     try {
@@ -155,8 +177,11 @@ module.exports = function (srv) {
         logonGroup: req.data.logonGroup || null,
         port: req.data.portNumber || null,
         instanceNo: req.data.instanceNo || null,
-        clientType: req.data.clientType || null
+        clientType: req.data.clientType || null,
+        endpoint: (req.data.endpoint || '').trim() || existing.endpoint
       }).where({ ID: id }))
+
+      await upsertCredentials(tx, SystemCredentials, id, (req.data.credUserId || '').trim(), req.data.credPassword || '', { onlyIfProvided: true })
 
       return { success: true, message: 'System updated.' }
     } finally {
@@ -186,5 +211,17 @@ module.exports = function (srv) {
     } finally {
       await tx.commit()
     }
+  })
+
+  srv.on('testSystemConnection', async (req) => {
+    const fail = (message) => ({ success: false, message, statusCode: null, latencyMs: null })
+    const subdomain = (req.data.subdomain || '').trim()
+    const id = (req.data.id || '').trim()
+    if (!subdomain || !id) return fail('id is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    return testConnection(resolved.tenant.ID, resolved.databaseName, id)
   })
 }

@@ -38,6 +38,12 @@ entity Systems : cuid, managed {
     endpoint        : String(255);
     status          : String(20) default 'ACTIVE'; // ACTIVE, DECOMMISSIONED
     comments        : String(200);
+
+    // Health of the last testSystemConnection call, not the landscape `status`
+    // above. Lets the offline notification fire only on the ONLINE/UNKNOWN ->
+    // OFFLINE transition instead of once per check for as long as it stays down
+    // (see system-config-service.js testSystemConnection).
+    lastConnectionStatus : String(10) default 'UNKNOWN'; // ONLINE, OFFLINE, UNKNOWN
 }
 
 // Credentials used to connect and pull data from a System. Kept as its own entity

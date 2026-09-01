@@ -236,8 +236,24 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const result = await testConnection(resolved.tenant.ID, resolved.databaseName, id)
+    const newStatus = result.success ? 'ONLINE' : 'OFFLINE'
 
-    if (!result.success) {
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { Systems } = await tenantEntities()
+    const tx = tenantDb.tx()
+    let previousStatus
+    try {
+      const row = await tx.run(SELECT.one.from(Systems).columns('lastConnectionStatus').where({ ID: id }))
+      previousStatus = row ? row.lastConnectionStatus : null
+      await tx.run(UPDATE(Systems).set({ lastConnectionStatus: newStatus }).where({ ID: id }))
+    } finally {
+      await tx.commit()
+    }
+
+    // Only notify on the transition into OFFLINE, not on every check for as
+    // long as it stays down — that's what was spamming the bell when Auto
+    // Refresh or Test All Connections re-checked an already-known-offline system.
+    if (newStatus === 'OFFLINE' && previousStatus !== 'OFFLINE') {
       // Best-effort — a notification failure shouldn't affect the test result.
       notify(resolved.tenant.ID, resolved.databaseName, {
         title: 'SAP System Offline',

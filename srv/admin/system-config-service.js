@@ -2,6 +2,7 @@ const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { testConnection } = require('../../lib/connection_engine')
+const { notify } = require('../../lib/notification_engine')
 
 // Inserts/updates the one SystemCredentials row for a system. Only touches
 // fields that were actually sent — createSystem always writes (even if
@@ -136,6 +137,18 @@ module.exports = function (srv) {
 
       await upsertCredentials(tx, SystemCredentials, id, (req.data.credUserId || '').trim(), req.data.credPassword || '')
 
+      // Best-effort — a notification failure shouldn't block system creation.
+      notify(resolved.tenant.ID, resolved.databaseName, {
+        title: 'SAP System Added',
+        message: `System ${sysId} (Client ${client}) was added to the landscape.`,
+        category: 'TASK',
+        priority: 'LOW',
+        targetPage: 'Configuration',
+        targetRecord: sysId,
+        icon: 'sap-icon://add',
+        iconClass: 'xyraNotifyIconGreen'
+      }).catch((err) => console.error('notify(createSystem) failed:', err))
+
       return { success: true, message: 'System created.', id }
     } finally {
       await tx.commit()
@@ -222,6 +235,21 @@ module.exports = function (srv) {
     const resolved = await resolveTenantBySubdomain(req, subdomain)
     if (!resolved) return fail('Tenant not found.')
 
-    return testConnection(resolved.tenant.ID, resolved.databaseName, id)
+    const result = await testConnection(resolved.tenant.ID, resolved.databaseName, id)
+
+    if (!result.success) {
+      // Best-effort — a notification failure shouldn't affect the test result.
+      notify(resolved.tenant.ID, resolved.databaseName, {
+        title: 'SAP System Offline',
+        message: result.message,
+        category: 'TASK',
+        priority: 'HIGH',
+        targetPage: 'SystemHealth',
+        icon: 'sap-icon://sys-cancel-2',
+        iconClass: 'xyraNotifyIconRed'
+      }).catch((err) => console.error('notify(testSystemConnection) failed:', err))
+    }
+
+    return result
   })
 }

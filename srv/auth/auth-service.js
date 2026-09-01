@@ -1,5 +1,6 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
+const { notify } = require('../../lib/notification_engine')
 
 module.exports = function (srv) {
   srv.on('login', async (req) => {
@@ -27,6 +28,17 @@ module.exports = function (srv) {
       if (!user || user.status !== 'ACTIVE') return fail('Email not found.')
 
       const role = user.role_ID ? await tenantTx.run(SELECT.one.from(Roles).where({ ID: user.role_ID })) : null
+
+      // Best-effort — a notification failure shouldn't block a successful login.
+      notify(resolved.tenant.ID, resolved.databaseName, {
+        title: 'User Login',
+        message: `${user.name || email} signed in.`,
+        category: 'TASK',
+        priority: 'LOW',
+        targetPage: 'Profile',
+        icon: 'sap-icon://log',
+        iconClass: 'xyraNotifyIconBlue'
+      }).catch((err) => console.error('notify(login) failed:', err))
 
       return {
         success: true,

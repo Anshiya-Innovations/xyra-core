@@ -13,3 +13,4 @@ using from './history';
 using from './scheduler';
 using from './dashboard';
 using from './reports';
+using from './notifications';

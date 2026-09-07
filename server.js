@@ -40,4 +40,10 @@ cds.on('bootstrap', (app) => {
   app.post('/api/provisioning/:tenantId/retry', wrap(runProvisioning))
 })
 
+// 'served', not 'bootstrap' - the master DB connection and cds.entities('xyra.master')
+// aren't guaranteed to exist yet at bootstrap time.
+cds.on('served', () => {
+  require('./lib/control_scheduler').start()
+})
+
 module.exports = cds.server

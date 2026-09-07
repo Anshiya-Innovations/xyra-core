@@ -5,6 +5,8 @@ using from './admin/user-management-service';
 using from './admin/system-config-service';
 using from './profile/profile-service';
 using from './notifications/notification-service';
+using from './control/control-service';
+using from './control/deviation-service';
 
 service PlatformService {
 

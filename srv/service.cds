@@ -7,6 +7,7 @@ using from './profile/profile-service';
 using from './notifications/notification-service';
 using from './control/control-service';
 using from './control/deviation-service';
+using from './review/review-service';
 
 service PlatformService {
 

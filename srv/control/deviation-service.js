@@ -44,6 +44,48 @@ async function loadAlertHeader(tx, Controls, Systems, AlertItems, alert) {
   }
 }
 
+// Batch version for listDeviations: 3 full-table SELECTs total (same "small
+// per-tenant dataset, fetch once" pattern as review_engine.loadLookups) instead
+// of 3 awaited queries per Alert row. loadAlertHeader above was originally
+// called once per row in a for-loop - a real N+1 that made listDeviations time
+// out (15s+) once there were ~19 Alerts against a non-local Postgres instance.
+async function loadHeaderLookups(tx, entities) {
+  const { Controls, Systems, AlertItems } = entities
+  const [controls, systems, items] = await Promise.all([
+    tx.run(SELECT.from(Controls)),
+    tx.run(SELECT.from(Systems).columns('ID', 'systemId', 'client', 'platform.code as platform', 'region.code as region', 'sector.code as sector')),
+    tx.run(SELECT.from(AlertItems).columns('ID', 'alert_ID').where({ deviationFlag: true }))
+  ])
+  const deviationCountByAlert = new Map()
+  items.forEach((i) => deviationCountByAlert.set(i.alert_ID, (deviationCountByAlert.get(i.alert_ID) || 0) + 1))
+  return {
+    controlById: new Map(controls.map((c) => [c.ID, c])),
+    systemById: new Map(systems.map((s) => [s.ID, s])),
+    deviationCountByAlert
+  }
+}
+
+function buildAlertHeader(alert, lookups) {
+  const control = lookups.controlById.get(alert.control_ID)
+  const system = lookups.systemById.get(alert.system_ID)
+
+  return {
+    id: alert.ID,
+    controlId: control ? control.code : '',
+    controlDescription: control ? control.description : '',
+    systemId: system ? system.systemId : '',
+    client: system ? system.client : '',
+    sector: (system && system.sector) || '',
+    region: (system && system.region) || '',
+    platform: (system && system.platform) || '',
+    status: toDisplayStatus(alert.incidentStatus),
+    severity: toDisplaySeverity(alert.severity),
+    deviationCount: lookups.deviationCountByAlert.get(alert.ID) || 0,
+    alertDate: alert.incidentCreatedAt,
+    description: alert.description || ''
+  }
+}
+
 // Filters applied in JS, not SQL - the Deviation Report's filter set spans
 // two related entities (Alerts + its Systems/Controls) and a date range;
 // building that as a single safe CQN WHERE isn't worth it for what's expected
@@ -72,14 +114,13 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Alerts, AlertItems, Controls, Systems, ControlRunHistory } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Alerts, ControlRunHistory } = entities
     const tx = tenantDb.tx()
     try {
       const alerts = await tx.run(SELECT.from(Alerts).orderBy('incidentCreatedAt desc'))
-      const headers = []
-      for (const alert of alerts) {
-        headers.push(await loadAlertHeader(tx, Controls, Systems, AlertItems, alert))
-      }
+      const lookups = await loadHeaderLookups(tx, entities)
+      const headers = alerts.map((alert) => buildAlertHeader(alert, lookups))
       const filtered = headers.filter((h) => matchesFilters(h, req.data))
 
       const totalIncidents = filtered.length

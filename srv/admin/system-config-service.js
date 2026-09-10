@@ -60,7 +60,7 @@ module.exports = function (srv) {
           .columns(
             'ID', 'systemId', 'client', 'tier', 'hostName', 'systemCompName',
             'clientType', 'version', 'logonGroup', 'port', 'instanceNo', 'status', 'endpoint',
-            'platform.code as platform', 'region.code as region', 'sector.code as sector'
+            'lastConnectionStatus', 'platform.code as platform', 'region.code as region', 'sector.code as sector'
           )
           .orderBy('createdAt desc')
       )
@@ -81,7 +81,8 @@ module.exports = function (srv) {
         portNumber: r.port,
         instanceNo: r.instanceNo || '',
         status: r.status,
-        endpoint: r.endpoint || ''
+        endpoint: r.endpoint || '',
+        lastConnectionStatus: r.lastConnectionStatus || 'UNKNOWN'
       }))
 
       return { success: true, message: 'OK', systems }

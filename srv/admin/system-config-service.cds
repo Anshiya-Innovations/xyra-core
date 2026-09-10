@@ -20,6 +20,7 @@ service SystemConfigService {
         instanceNo : String;
         status     : String;
         endpoint   : String;
+        lastConnectionStatus : String; // ONLINE/OFFLINE/UNKNOWN, set by testSystemConnection
     };
 
     action listSystems(subdomain: String) returns {

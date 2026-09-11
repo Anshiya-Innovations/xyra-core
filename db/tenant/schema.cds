@@ -14,3 +14,4 @@ using from './runlogs';
 using from './dashboard';
 using from './reports';
 using from './notifications';
+using from './audit';

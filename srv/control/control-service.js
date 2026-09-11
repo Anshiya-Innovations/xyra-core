@@ -13,6 +13,38 @@ function toRuleEntry(r) {
 async function loadControlEntry(tx, ControlRules, ControlSystemConfig, control) {
   const rules = await tx.run(SELECT.from(ControlRules).where({ control_ID: control.ID }).orderBy('sortOrder'))
   const configs = await tx.run(SELECT.from(ControlSystemConfig).columns('system_ID').where({ control_ID: control.ID }))
+  return buildControlEntry(control, {
+    rulesByControl: new Map([[control.ID, rules]]),
+    systemIdsByControl: new Map([[control.ID, configs.map((c) => c.system_ID)]])
+  })
+}
+
+// Batch version for listControls: 2 full-table SELECTs total (same "small
+// per-tenant dataset, fetch once" pattern already proven in
+// deviation-service.js's loadHeaderLookups and review_engine's loadLookups)
+// instead of loadControlEntry's 2 awaited queries per control row - that
+// exact N+1 shape already made listDeviations/review queues take 15-30s+
+// before those got the same treatment; control-service.js was the one place
+// still doing it the slow way.
+async function loadControlLookups(tx, ControlRules, ControlSystemConfig) {
+  const [rules, configs] = await Promise.all([
+    tx.run(SELECT.from(ControlRules).orderBy('sortOrder')),
+    tx.run(SELECT.from(ControlSystemConfig).columns('control_ID', 'system_ID'))
+  ])
+  const rulesByControl = new Map()
+  rules.forEach((r) => {
+    if (!rulesByControl.has(r.control_ID)) rulesByControl.set(r.control_ID, [])
+    rulesByControl.get(r.control_ID).push(r)
+  })
+  const systemIdsByControl = new Map()
+  configs.forEach((c) => {
+    if (!systemIdsByControl.has(c.control_ID)) systemIdsByControl.set(c.control_ID, [])
+    systemIdsByControl.get(c.control_ID).push(c.system_ID)
+  })
+  return { rulesByControl, systemIdsByControl }
+}
+
+function buildControlEntry(control, lookups) {
   return {
     id: control.ID,
     code: control.code,
@@ -23,11 +55,11 @@ async function loadControlEntry(tx, ControlRules, ControlSystemConfig, control) 
     cronExpression: control.cronExpression || '',
     critical: control.critical,
     enabled: control.enabled,
-    systemIds: configs.map((c) => c.system_ID),
+    systemIds: lookups.systemIdsByControl.get(control.ID) || [],
     lastRunAt: control.lastRunAt,
     lastRunStatus: control.lastRunStatus || '',
     nextRunAt: control.nextRunAt,
-    rules: rules.map(toRuleEntry),
+    rules: (lookups.rulesByControl.get(control.ID) || []).map(toRuleEntry),
     createdAt: control.createdAt,
     createdBy: control.createdBy,
     modifiedAt: control.modifiedAt,
@@ -41,12 +73,11 @@ async function loadControlEntry(tx, ControlRules, ControlSystemConfig, control) 
 // this - see db/tenant/alerts.cds).
 async function replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, controlId, rules, systemIds) {
   await tx.run(DELETE.from(ControlRules).where({ control_ID: controlId }))
-  let sortOrder = 1
-  for (const rule of rules || []) {
-    await tx.run(INSERT.into(ControlRules).entries({
+  if (rules && rules.length) {
+    const ruleEntries = rules.map((rule, i) => ({
       ID: cds.utils.uuid(),
       control_ID: controlId,
-      sortOrder: rule.sortOrder || sortOrder,
+      sortOrder: rule.sortOrder || i + 1,
       sapObject: rule.sapObject,
       client: rule.client,
       parameterType: rule.parameterType || 'GENERAL',
@@ -54,14 +85,15 @@ async function replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, con
       operator: rule.operator,
       expectedValue: rule.expectedValue
     }))
-    sortOrder++
+    await tx.run(INSERT.into(ControlRules).entries(ruleEntries))
   }
 
   await tx.run(DELETE.from(ControlSystemConfig).where({ control_ID: controlId }))
-  for (const systemId of systemIds || []) {
-    await tx.run(INSERT.into(ControlSystemConfig).entries({
+  if (systemIds && systemIds.length) {
+    const configEntries = systemIds.map((systemId) => ({
       ID: cds.utils.uuid(), control_ID: controlId, system_ID: systemId, enabled: true
     }))
+    await tx.run(INSERT.into(ControlSystemConfig).entries(configEntries))
   }
 }
 
@@ -78,11 +110,17 @@ module.exports = function (srv) {
     const { Controls, ControlRules, ControlSystemConfig } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
-      const controls = await tx.run(SELECT.from(Controls).orderBy('createdAt desc'))
-      const entries = []
-      for (const control of controls) {
-        entries.push(await loadControlEntry(tx, ControlRules, ControlSystemConfig, control))
-      }
+      // loadControlLookups fetches ALL rules/configs tenant-wide, independent
+      // of which Controls rows come back - no reason to wait for Controls
+      // before starting it too (each round trip to this DB costs real time -
+      // see resolveTenant.js's cache comment - so overlapping what can be
+      // overlapped still matters even though this driver serializes queries
+      // on one connection rather than truly pipelining them).
+      const [controls, lookups] = await Promise.all([
+        tx.run(SELECT.from(Controls).orderBy('createdAt desc')),
+        loadControlLookups(tx, ControlRules, ControlSystemConfig)
+      ])
+      const entries = controls.map((control) => buildControlEntry(control, lookups))
       return { success: true, message: 'OK', controls: entries }
     } finally {
       await tx.commit()

@@ -3,11 +3,13 @@ using from './master/onboarding-service';
 using from './auth/auth-service';
 using from './admin/user-management-service';
 using from './admin/system-config-service';
+using from './admin/organization-service';
 using from './profile/profile-service';
 using from './notifications/notification-service';
 using from './control/control-service';
 using from './control/deviation-service';
 using from './review/review-service';
+using from './audit/audit-log-service';
 
 service PlatformService {
 

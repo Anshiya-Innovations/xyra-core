@@ -33,6 +33,11 @@ service ReviewService {
         ticketNumber    : String;
         ticketLevel     : Integer;
         ticketCreatedAt : Timestamp;
+
+        slaDeadline   : Timestamp; // null once the review has no active stage clock (terminal)
+        daysPending   : Integer;   // calendar days since the current stage's clock started
+        isOverdue     : Boolean;
+        escalationDue : Boolean;   // Level 2 only: overdue by more than the tenant's escalation delay - flag for Escalation Manager
     };
 
     action listLevel1Queue(subdomain: String) returns { success: Boolean; message: String; reviews: many ReviewEntry; };

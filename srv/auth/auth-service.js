@@ -1,6 +1,7 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { notify } = require('../../lib/notification_engine')
+const { logAudit } = require('../../lib/audit')
 
 module.exports = function (srv) {
   srv.on('login', async (req) => {
@@ -17,7 +18,8 @@ module.exports = function (srv) {
     if (!resolved) return fail('Email not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Users, Roles } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Users, Roles } = entities
 
     // One shared tx for the user + role lookups instead of two separate implicit
     // ones. Not tied to `req` (this is a secondary connection, not the primary
@@ -39,6 +41,17 @@ module.exports = function (srv) {
         icon: 'sap-icon://log',
         iconClass: 'xyraNotifyIconBlue'
       }).catch((err) => console.error('notify(login) failed:', err))
+
+      await logAudit(tenantTx, entities, {
+        action: 'LOGIN',
+        module: 'Authentication',
+        objectType: 'User',
+        objectId: user.ID,
+        objectLabel: user.email,
+        description: `${user.name || user.email} logged in.`,
+        performedBy: user.email,
+        performedByRole: role ? role.code : null
+      })
 
       return {
         success: true,

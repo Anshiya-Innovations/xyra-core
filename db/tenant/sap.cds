@@ -2,6 +2,7 @@ namespace xyra.tenant;
 
 using { cuid, managed } from '@sap/cds/common';
 using { xyra.tenant.Regions, xyra.tenant.Platforms, xyra.tenant.Sectors } from './reference';
+using { xyra.tenant.Organizations } from './organizations';
 
 // A fixed, well-known set of tiers (SOP: "Development, Quality and Production
 // tiers" plus Pre-Quality/Pre-Production). A CDS enum covers this — no need for
@@ -27,6 +28,7 @@ entity Systems : cuid, managed {
     systemName      : String(100);
     systemCompName  : String(100);
     hostName        : String(255);
+    organization    : Association to Organizations; // which org's landscape this system belongs to
     platform        : Association to Platforms;
     region          : Association to Regions;
     sector          : Association to Sectors;

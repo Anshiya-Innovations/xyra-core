@@ -3,6 +3,10 @@ const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager'
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { testConnection } = require('../../lib/connection_engine')
 const { notify } = require('../../lib/notification_engine')
+const { logAudit } = require('../../lib/audit')
+const { DEFAULT_SLA_SETTINGS } = require('../../lib/review_engine/slaDefaults')
+
+const SLA_FIELDS = ['reviewer1Days', 'reviewer2Days', 'escalationDelayDays']
 
 // Inserts/updates the one SystemCredentials row for a system. Only touches
 // fields that were actually sent — createSystem always writes (even if
@@ -60,7 +64,8 @@ module.exports = function (srv) {
           .columns(
             'ID', 'systemId', 'client', 'tier', 'hostName', 'systemCompName',
             'clientType', 'version', 'logonGroup', 'port', 'instanceNo', 'status', 'endpoint',
-            'lastConnectionStatus', 'platform.code as platform', 'region.code as region', 'sector.code as sector'
+            'lastConnectionStatus', 'organization_ID', 'organization.orgCode as organizationCode', 'organization.name as organizationName',
+            'platform.code as platform', 'region.code as region', 'sector.code as sector'
           )
           .orderBy('createdAt desc')
       )
@@ -72,6 +77,9 @@ module.exports = function (srv) {
         sysType: titleCase(r.tier),
         hostName: r.hostName,
         sysDetails: r.systemCompName || '',
+        organizationId: r.organization_ID || '',
+        organizationCode: r.organizationCode || '',
+        organizationName: r.organizationName || '',
         sector: r.sector || '',
         platform: r.platform || '',
         region: r.region || '',
@@ -97,18 +105,25 @@ module.exports = function (srv) {
     const sysId = (req.data.sysId || '').trim()
     const client = (req.data.client || '').trim()
     const hostName = (req.data.hostName || '').trim()
-    if (!subdomain || !sysId || !client || !hostName) return fail('System ID, Client, and Host Name are required.')
+    const organizationId = (req.data.organizationId || '').trim()
+    if (!subdomain || !sysId || !client || !hostName || !organizationId) {
+      return fail('System ID, Client, Host Name, and Organization are required.')
+    }
 
     const resolved = await resolveTenantBySubdomain(req, subdomain)
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Systems, SystemCredentials, Regions, Platforms, Sectors } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Systems, SystemCredentials, Regions, Platforms, Sectors, Organizations } = entities
 
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Systems).where({ systemId: sysId, client }))
       if (existing) return fail(`System ${sysId} / Client ${client} already exists.`)
+
+      const org = await tx.run(SELECT.one.from(Organizations).where({ ID: organizationId }))
+      if (!org) return fail('Selected Organization not found.')
 
       const [platformId, regionId, sectorId] = await Promise.all([
         resolveRefId(tx, Platforms, req.data.platform),
@@ -124,6 +139,7 @@ module.exports = function (srv) {
         tier: (req.data.sysType || 'QUALITY').toUpperCase(),
         systemCompName: req.data.sysDetails || null,
         hostName,
+        organization_ID: organizationId,
         platform_ID: platformId,
         region_ID: regionId,
         sector_ID: sectorId,
@@ -150,6 +166,18 @@ module.exports = function (srv) {
         iconClass: 'xyraNotifyIconGreen'
       }).catch((err) => console.error('notify(createSystem) failed:', err))
 
+      await logAudit(tx, entities, {
+        action: 'SYSTEM_CREATE',
+        module: 'System Configuration',
+        objectType: 'System',
+        objectId: sysId,
+        objectLabel: `${sysId} (${client})`,
+        description: `Added SAP System '${sysId}' (Client ${client}) to the landscape.`,
+        systemId: sysId,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+
       return { success: true, message: 'System created.', id }
     } finally {
       await tx.commit()
@@ -166,12 +194,19 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Systems, SystemCredentials, Regions, Platforms, Sectors } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Systems, SystemCredentials, Regions, Platforms, Sectors, Organizations } = entities
 
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Systems).where({ ID: id }))
       if (!existing) return fail('System not found.')
+
+      const organizationId = (req.data.organizationId || '').trim()
+      if (organizationId) {
+        const org = await tx.run(SELECT.one.from(Organizations).where({ ID: organizationId }))
+        if (!org) return fail('Selected Organization not found.')
+      }
 
       const [platformId, regionId, sectorId] = await Promise.all([
         resolveRefId(tx, Platforms, req.data.platform),
@@ -184,6 +219,7 @@ module.exports = function (srv) {
         tier: (req.data.sysType || existing.tier || 'QUALITY').toUpperCase(),
         systemCompName: req.data.sysDetails || null,
         hostName: req.data.hostName || existing.hostName,
+        organization_ID: organizationId || existing.organization_ID,
         platform_ID: platformId,
         region_ID: regionId,
         sector_ID: sectorId,
@@ -196,6 +232,20 @@ module.exports = function (srv) {
       }).where({ ID: id }))
 
       await upsertCredentials(tx, SystemCredentials, id, (req.data.credUserId || '').trim(), req.data.credPassword || '', { onlyIfProvided: true })
+
+      await logAudit(tx, entities, {
+        action: 'SYSTEM_UPDATE',
+        module: 'System Configuration',
+        objectType: 'System',
+        objectId: existing.systemId,
+        objectLabel: `${existing.systemId} (${existing.client})`,
+        description: `Updated SAP System '${existing.systemId}' (Client ${existing.client}).`,
+        previousValue: `Host: ${existing.hostName} | Tier: ${existing.tier}`,
+        newValue: `Host: ${req.data.hostName || existing.hostName} | Tier: ${(req.data.sysType || existing.tier || 'QUALITY').toUpperCase()}`,
+        systemId: existing.systemId,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
 
       return { success: true, message: 'System updated.' }
     } finally {
@@ -268,5 +318,74 @@ module.exports = function (srv) {
     }
 
     return result
+  })
+
+  srv.on('getSlaSettings', async (req) => {
+    const fail = (message) => ({ success: false, message, settings: null })
+    const subdomain = (req.data.subdomain || '').trim()
+    if (!subdomain) return fail('subdomain is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { SlaSettings } = await tenantEntities()
+    const tx = tenantDb.tx()
+    try {
+      const row = await tx.run(SELECT.one.from(SlaSettings))
+      const settings = row || DEFAULT_SLA_SETTINGS // legacy tenant, not yet re-provisioned/seeded
+      return {
+        success: true,
+        message: 'OK',
+        settings: Object.fromEntries(SLA_FIELDS.map((f) => [f, settings[f]]))
+      }
+    } finally {
+      await tx.commit()
+    }
+  })
+
+  srv.on('updateSlaSettings', async (req) => {
+    const fail = (message) => ({ success: false, message })
+    const subdomain = (req.data.subdomain || '').trim()
+    if (!subdomain) return fail('subdomain is required.')
+
+    const patch = {}
+    for (const f of SLA_FIELDS) {
+      const n = Number(req.data[f])
+      if (!Number.isInteger(n) || n < 1) return fail(`${f} must be a positive whole number of days.`)
+      patch[f] = n
+    }
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const entities = await tenantEntities()
+    const { SlaSettings } = entities
+    const tx = tenantDb.tx()
+    try {
+      const existing = await tx.run(SELECT.one.from(SlaSettings))
+      if (existing) {
+        await tx.run(UPDATE(SlaSettings).set(patch).where({ ID: existing.ID }))
+      } else {
+        // Self-healing: a tenant provisioned before this feature existed.
+        await tx.run(INSERT.into(SlaSettings).entries({ ID: cds.utils.uuid(), ...patch }))
+      }
+
+      await logAudit(tx, entities, {
+        action: 'SLA_SETTINGS_UPDATE',
+        module: 'System Configuration',
+        objectType: 'SlaSettings',
+        objectId: subdomain,
+        objectLabel: 'Review SLA Settings',
+        description: `Updated review SLA windows: Reviewer 1 ${patch.reviewer1Days}d, Reviewer 2 ${patch.reviewer2Days}d, Escalation delay ${patch.escalationDelayDays}d.`,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+
+      return { success: true, message: 'SLA settings updated.' }
+    } finally {
+      await tx.commit()
+    }
   })
 }

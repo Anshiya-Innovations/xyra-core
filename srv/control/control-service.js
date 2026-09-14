@@ -2,6 +2,7 @@ const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { runControl } = require('../../lib/control_engine')
+const { logAudit } = require('../../lib/audit')
 
 function toRuleEntry(r) {
   return {
@@ -159,7 +160,8 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Controls, ControlRules, ControlSystemConfig } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Controls, ControlRules, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Controls).where({ code }))
@@ -179,6 +181,18 @@ module.exports = function (srv) {
       }))
       await replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, id, req.data.rules, req.data.systemIds)
 
+      await logAudit(tx, entities, {
+        action: 'CONTROL_CREATE',
+        module: 'Control Management',
+        objectType: 'Control',
+        objectId: code,
+        objectLabel: code,
+        description: `Created Security Control Master rule '${code}': ${description}`,
+        controlId: code,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+
       return { success: true, message: 'Control created.', id }
     } finally {
       await tx.commit()
@@ -195,22 +209,40 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Controls, ControlRules, ControlSystemConfig } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Controls, ControlRules, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Controls).where({ ID: id }))
       if (!existing) return fail('Control not found.')
 
+      const sNewDesc = req.data.description || existing.description
+      const sNewFreq = req.data.frequency || existing.frequency
+
       await tx.run(UPDATE(Controls).set({
-        description: req.data.description || existing.description,
+        description: sNewDesc,
         category: req.data.category || null,
         controlType: req.data.controlType || existing.controlType,
-        frequency: req.data.frequency || existing.frequency,
+        frequency: sNewFreq,
         cronExpression: req.data.cronExpression || null,
         critical: !!req.data.critical,
         enabled: req.data.enabled === undefined ? existing.enabled : !!req.data.enabled
       }).where({ ID: id }))
       await replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, id, req.data.rules, req.data.systemIds)
+
+      await logAudit(tx, entities, {
+        action: 'CONTROL_UPDATE',
+        module: 'Control Management',
+        objectType: 'Control',
+        objectId: existing.code,
+        objectLabel: existing.code,
+        description: `Updated Security Control Master rule '${existing.code}'.`,
+        previousValue: `Desc: ${existing.description} | Freq: ${existing.frequency}`,
+        newValue: `Desc: ${sNewDesc} | Freq: ${sNewFreq}`,
+        controlId: existing.code,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
 
       return { success: true, message: 'Control updated.' }
     } finally {
@@ -228,7 +260,8 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Controls, ControlRules, ControlSystemConfig } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Controls, ControlRules, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Controls).where({ ID: id }))
@@ -240,6 +273,19 @@ module.exports = function (srv) {
       await tx.run(DELETE.from(ControlRules).where({ control_ID: id }))
       await tx.run(DELETE.from(ControlSystemConfig).where({ control_ID: id }))
       await tx.run(DELETE.from(Controls).where({ ID: id }))
+
+      await logAudit(tx, entities, {
+        action: 'CONTROL_DELETE',
+        module: 'Control Management',
+        objectType: 'Control',
+        objectId: existing.code,
+        objectLabel: existing.code,
+        description: `Deleted Security Control Master rule '${existing.code}': ${existing.description}`,
+        controlId: existing.code,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+
       return { success: true, message: 'Control deleted.' }
     } finally {
       await tx.commit()
@@ -255,6 +301,94 @@ module.exports = function (srv) {
     const resolved = await resolveTenantBySubdomain(req, subdomain)
     if (!resolved) return fail('Tenant not found.')
 
-    return runControl(resolved.tenant.ID, resolved.databaseName, id)
+    const result = await runControl(resolved.tenant.ID, resolved.databaseName, id)
+
+    // runControl manages its own tx internally and doesn't expose one to
+    // piggyback on - open a small separate one just for the audit row, after
+    // the real run already succeeded.
+    if (result && result.success) {
+      const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+      const entities = await tenantEntities()
+      const tx = tenantDb.tx()
+      try {
+        const control = await tx.run(SELECT.one.from(entities.Controls).where({ ID: id }))
+        const code = control ? control.code : id
+        await logAudit(tx, entities, {
+          action: 'CONTROL_RUN',
+          module: 'Control Management',
+          objectType: 'Control',
+          objectId: code,
+          objectLabel: code,
+          description: `Ran Security Control Master rule '${code}' now: ${result.systemsChecked} system(s) checked, ${result.deviationsFound} deviation(s) found, ${result.alertsCreated} alert(s) created.`,
+          controlId: code,
+          performedBy: req.data.performedBy,
+          performedByRole: req.data.performedByRole
+        })
+      } finally {
+        await tx.commit()
+      }
+    }
+
+    return result
+  })
+
+  srv.on('listControlHistory', async (req) => {
+    const fail = (message) => ({ success: false, message, history: [] })
+    const subdomain = (req.data.subdomain || '').trim()
+    const controlId = (req.data.controlId || '').trim()
+    if (!subdomain || !controlId) return fail('Please select a Control.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { Controls, Systems, ControlRunHistory } = await tenantEntities()
+    const tx = tenantDb.tx()
+    try {
+      const control = await tx.run(SELECT.one.from(Controls).where({ ID: controlId }))
+      if (!control) return fail('Control not found.')
+
+      // Control is a mandatory filter, pushed down as a real WHERE - this
+      // table grows one row per (control x system x rule) every run, forever,
+      // so "fetch everything then filter in JS" (the pattern used elsewhere
+      // in this codebase for small datasets) isn't safe here.
+      const rows = await tx.run(
+        SELECT.from(ControlRunHistory).where({ control_ID: controlId }).orderBy('createdAt desc').limit(2000)
+      )
+      const systems = await tx.run(
+        SELECT.from(Systems).columns('ID', 'systemId', 'client', 'platform.code as platform', 'region.code as region', 'sector.code as sector')
+      )
+      const systemById = new Map(systems.map((s) => [s.ID, s]))
+
+      const startMs = req.data.startDate ? new Date(req.data.startDate).getTime() : null
+      const endMs = req.data.endDate ? new Date(`${req.data.endDate}T23:59:59`).getTime() : null
+
+      const entries = rows
+        .map((r) => {
+          const sys = systemById.get(r.system_ID) || {}
+          return {
+            controlId: control.code, controlDescription: control.description,
+            systemId: sys.systemId || '', client: sys.client || '',
+            region: sys.region || '', platform: sys.platform || '', sector: sys.sector || '',
+            sapObject: r.sapObject, parameter: r.parameter, operator: r.operator,
+            actualValue: r.actualValue || '', expectedValue: r.expectedValue || '',
+            deviationFlag: !!r.deviationFlag, message: r.message || '',
+            capturedAt: r.createdAt
+          }
+        })
+        .filter((e) =>
+          (!req.data.systemId || e.systemId === req.data.systemId) &&
+          (!req.data.client || e.client === req.data.client) &&
+          (!req.data.region || e.region === req.data.region) &&
+          (!req.data.platform || e.platform === req.data.platform) &&
+          (!req.data.sector || e.sector === req.data.sector) &&
+          (!startMs || new Date(e.capturedAt).getTime() >= startMs) &&
+          (!endMs || new Date(e.capturedAt).getTime() <= endMs)
+        )
+
+      return { success: true, message: 'OK', history: entries }
+    } finally {
+      await tx.commit()
+    }
   })
 }

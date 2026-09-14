@@ -4,12 +4,15 @@
 service SystemConfigService {
 
     type SystemEntry {
-        id         : String;
-        sysId      : String;
-        client     : String;
-        sysType    : String;
-        hostName   : String;
-        sysDetails : String;
+        id               : String;
+        sysId            : String;
+        client           : String;
+        sysType          : String;
+        hostName         : String;
+        sysDetails       : String;
+        organizationId   : String;
+        organizationCode : String;
+        organizationName : String;
         sector     : String;
         platform   : String;
         region     : String;
@@ -30,12 +33,13 @@ service SystemConfigService {
     };
 
     action createSystem(
-        subdomain  : String,
-        sysId      : String,
-        client     : String,
-        sysType    : String,
-        hostName   : String,
-        sysDetails : String,
+        subdomain      : String,
+        sysId          : String,
+        client         : String,
+        sysType        : String,
+        hostName       : String,
+        sysDetails     : String,
+        organizationId : String, // required - which Organization this system belongs to
         sector     : String,
         platform   : String,
         region     : String,
@@ -46,7 +50,9 @@ service SystemConfigService {
         instanceNo : String,
         endpoint   : String, // full base URL, e.g. http://localhost:8000 — see connection_engine
         credUserId : String, // Basic Auth user; leave both cred fields empty to skip storing credentials
-        credPassword : String
+        credPassword : String,
+        performedBy : String, // acting user's email, for the audit log
+        performedByRole : String
     ) returns {
         success : Boolean;
         message : String;
@@ -58,12 +64,13 @@ service SystemConfigService {
     // credPassword are only written when non-empty, so leaving them blank on
     // an edit keeps whatever credentials are already on file.
     action updateSystem(
-        subdomain  : String,
-        id         : String,
-        client     : String,
-        sysType    : String,
-        hostName   : String,
-        sysDetails : String,
+        subdomain      : String,
+        id             : String,
+        client         : String,
+        sysType        : String,
+        hostName       : String,
+        sysDetails     : String,
+        organizationId : String, // optional - reassign to a different Organization; omitted keeps the current one
         sector     : String,
         platform   : String,
         region     : String,
@@ -74,7 +81,9 @@ service SystemConfigService {
         instanceNo : String,
         endpoint   : String,
         credUserId : String,
-        credPassword : String
+        credPassword : String,
+        performedBy : String,
+        performedByRole : String
     ) returns {
         success : Boolean;
         message : String;
@@ -93,5 +102,29 @@ service SystemConfigService {
         message    : String;
         statusCode : Integer;
         latencyMs  : Integer;
+    };
+
+    type SlaSettingsEntry {
+        reviewer1Days       : Integer;
+        reviewer2Days       : Integer;
+        escalationDelayDays : Integer;
+    };
+
+    action getSlaSettings(subdomain: String) returns {
+        success  : Boolean;
+        message  : String;
+        settings : SlaSettingsEntry;
+    };
+
+    action updateSlaSettings(
+        subdomain           : String,
+        reviewer1Days       : Integer,
+        reviewer2Days       : Integer,
+        escalationDelayDays : Integer,
+        performedBy         : String,
+        performedByRole     : String
+    ) returns {
+        success : Boolean;
+        message : String;
     };
 }

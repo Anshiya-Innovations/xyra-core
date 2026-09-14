@@ -48,16 +48,18 @@ service ControlService {
     };
 
     action createControl(
-        subdomain      : String,
-        code           : String,
-        description    : String,
-        category       : String,
-        controlType    : String,
-        frequency      : String,
-        cronExpression : String, // only meaningful when frequency='CRON'
-        critical       : Boolean,
-        systemIds      : many String,
-        rules          : many ControlRuleEntry
+        subdomain       : String,
+        code            : String,
+        description     : String,
+        category        : String,
+        controlType     : String,
+        frequency       : String,
+        cronExpression  : String, // only meaningful when frequency='CRON'
+        critical        : Boolean,
+        systemIds       : many String,
+        rules           : many ControlRuleEntry,
+        performedBy     : String, // acting user's email, for the audit log
+        performedByRole : String
     ) returns {
         success : Boolean;
         message : String;
@@ -67,33 +69,73 @@ service ControlService {
     // code isn't editable — the row is targeted by id. rules/systemIds are
     // always a full replace (delete+reinsert), see control-service.js.
     action updateControl(
-        subdomain      : String,
-        id             : String,
-        description    : String,
-        category       : String,
-        controlType    : String,
-        frequency      : String,
-        cronExpression : String,
-        critical       : Boolean,
-        enabled        : Boolean,
-        systemIds      : many String,
-        rules          : many ControlRuleEntry
+        subdomain       : String,
+        id              : String,
+        description     : String,
+        category        : String,
+        controlType     : String,
+        frequency       : String,
+        cronExpression  : String,
+        critical        : Boolean,
+        enabled         : Boolean,
+        systemIds       : many String,
+        rules           : many ControlRuleEntry,
+        performedBy     : String,
+        performedByRole : String
     ) returns {
         success : Boolean;
         message : String;
     };
 
-    action deleteControl(subdomain: String, id: String) returns {
+    action deleteControl(subdomain: String, id: String, performedBy: String, performedByRole: String) returns {
         success : Boolean;
         message : String;
     };
 
     // Manual trigger — calls lib/control_engine.runControl directly, doesn't
     // wait for the scheduler's next tick.
-    action runControlNow(subdomain: String, id: String) returns {
+    action runControlNow(subdomain: String, id: String, performedBy: String, performedByRole: String) returns {
         success         : Boolean;
         message         : String;
         deviationsFound : Integer;
         alertsCreated   : Integer;
+    };
+
+    type ControlHistoryEntry {
+        controlId          : String;
+        controlDescription : String;
+        systemId            : String;
+        client              : String;
+        region              : String;
+        platform            : String;
+        sector              : String;
+        sapObject           : String;
+        parameter           : String;
+        operator            : String;
+        actualValue         : String;
+        expectedValue       : String;
+        deviationFlag       : Boolean;
+        message             : String;
+        capturedAt          : Timestamp;
+    };
+
+    // Control History Data Review (SDLC 8.1.9) - every value a control run
+    // extracted, deviation or not, already captured by control_engine.runControl
+    // into ControlRunHistory but never read back until now. Control is a
+    // required filter, not just optional - see control-service.js.
+    action listControlHistory(
+        subdomain : String,
+        controlId : String,
+        systemId  : String,
+        client    : String,
+        region    : String,
+        platform  : String,
+        sector    : String,
+        startDate : String,
+        endDate   : String
+    ) returns {
+        success : Boolean;
+        message : String;
+        history : many ControlHistoryEntry;
     };
 }

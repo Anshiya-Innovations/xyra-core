@@ -22,7 +22,7 @@ async function loadAlertHeader(tx, Controls, Systems, AlertItems, alert) {
   const control = await tx.run(SELECT.one.from(Controls).where({ ID: alert.control_ID }))
   const system = await tx.run(
     SELECT.one.from(Systems)
-      .columns('ID', 'systemId', 'client', 'platform.code as platform', 'region.code as region', 'sector.code as sector')
+      .columns('ID', 'systemId', 'client', 'organization_ID', 'platform.code as platform', 'region.code as region', 'sector.code as sector')
       .where({ ID: alert.system_ID })
   )
   const items = await tx.run(SELECT.from(AlertItems).columns('ID').where({ alert_ID: alert.ID, deviationFlag: true }))
@@ -33,6 +33,7 @@ async function loadAlertHeader(tx, Controls, Systems, AlertItems, alert) {
     controlDescription: control ? control.description : '',
     systemId: system ? system.systemId : '',
     client: system ? system.client : '',
+    organizationId: (system && system.organization_ID) || '',
     sector: (system && system.sector) || '',
     region: (system && system.region) || '',
     platform: (system && system.platform) || '',
@@ -53,7 +54,7 @@ async function loadHeaderLookups(tx, entities) {
   const { Controls, Systems, AlertItems } = entities
   const [controls, systems, items] = await Promise.all([
     tx.run(SELECT.from(Controls)),
-    tx.run(SELECT.from(Systems).columns('ID', 'systemId', 'client', 'platform.code as platform', 'region.code as region', 'sector.code as sector')),
+    tx.run(SELECT.from(Systems).columns('ID', 'systemId', 'client', 'organization_ID', 'platform.code as platform', 'region.code as region', 'sector.code as sector')),
     tx.run(SELECT.from(AlertItems).columns('ID', 'alert_ID').where({ deviationFlag: true }))
   ])
   const deviationCountByAlert = new Map()
@@ -75,6 +76,7 @@ function buildAlertHeader(alert, lookups) {
     controlDescription: control ? control.description : '',
     systemId: system ? system.systemId : '',
     client: system ? system.client : '',
+    organizationId: (system && system.organization_ID) || '',
     sector: (system && system.sector) || '',
     region: (system && system.region) || '',
     platform: (system && system.platform) || '',
@@ -92,6 +94,7 @@ function buildAlertHeader(alert, lookups) {
 // to be a small, per-tenant row count. See control_engine's runDueControls for
 // the same reasoning.
 function matchesFilters(header, f) {
+  if (f.organizationId && f.organizationId !== 'All' && header.organizationId !== f.organizationId) return false
   if (f.sector && f.sector !== 'All' && header.sector !== f.sector) return false
   if (f.region && f.region !== 'All' && header.region !== f.region) return false
   if (f.platform && f.platform !== 'All' && header.platform !== f.platform) return false

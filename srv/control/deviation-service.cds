@@ -9,6 +9,7 @@ service DeviationService {
         controlDescription : String;
         systemId           : String;
         client             : String;
+        organizationId     : String;
         sector             : String;
         region             : String;
         platform           : String;
@@ -47,7 +48,8 @@ service DeviationService {
     };
 
     action listDeviations(
-        subdomain : String,
+        subdomain      : String,
+        organizationId : String,
         sector    : String,
         region    : String,
         platform  : String,

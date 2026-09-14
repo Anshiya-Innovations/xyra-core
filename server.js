@@ -44,6 +44,7 @@ cds.on('bootstrap', (app) => {
 // aren't guaranteed to exist yet at bootstrap time.
 cds.on('served', () => {
   require('./lib/control_scheduler').start()
+  require('./lib/sla_reminder').start()
 })
 
 module.exports = cds.server

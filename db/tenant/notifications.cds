@@ -12,7 +12,12 @@ using { cuid, managed } from '@sap/cds/common';
 entity Notifications : cuid, managed {
     title        : String(150) not null;
     message      : String(500) not null;
-    category     : String(20) default 'TASK'; // TASK, REMINDER
+    // TASK (generic/system events, login), REMINDER (weekly SLA digest),
+    // ALERT (a new deviation was detected), TICKET (a remediation ticket was
+    // created or changed status) - Reviewer/Admin's bell only ever shows
+    // ALERT/TICKET (see xyra-web NotificationService.js's role filter);
+    // everything else still exists for other roles/future use.
+    category     : String(20) default 'TASK';
     priority     : String(10) default 'MEDIUM'; // HIGH, MEDIUM, LOW
     read         : Boolean default false;
     targetPage   : String(50); // xyra-web route name to navigate to on click

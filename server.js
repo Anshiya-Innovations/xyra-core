@@ -45,6 +45,7 @@ cds.on('bootstrap', (app) => {
 cds.on('served', () => {
   require('./lib/control_scheduler').start()
   require('./lib/sla_reminder').start()
+  require('./lib/ticketing/jiraSync').start()
 })
 
 module.exports = cds.server

@@ -109,6 +109,11 @@ module.exports = function (srv) {
     if (!subdomain || !sysId || !client || !hostName || !organizationId) {
       return fail('System ID, Client, Host Name, and Organization are required.')
     }
+    // Systems.systemId/client are varchar(3) (real SAP SID/client width) -
+    // an over-length value used to reach the DB unchecked and crash with a
+    // raw "value too long" Postgres error instead of a real message.
+    if (sysId.length > 3) return fail('System ID (SID) must be at most 3 characters.')
+    if (client.length > 3) return fail('Client must be at most 3 characters.')
 
     const resolved = await resolveTenantBySubdomain(req, subdomain)
     if (!resolved) return fail('Tenant not found.')
@@ -189,6 +194,8 @@ module.exports = function (srv) {
     const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
     if (!subdomain || !id) return fail('id is required.')
+    const client = (req.data.client || '').trim()
+    if (client && client.length > 3) return fail('Client must be at most 3 characters.')
 
     const resolved = await resolveTenantBySubdomain(req, subdomain)
     if (!resolved) return fail('Tenant not found.')

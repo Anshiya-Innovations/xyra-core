@@ -33,6 +33,9 @@ service ReviewService {
         ticketNumber    : String;
         ticketLevel     : Integer;
         ticketCreatedAt : Timestamp;
+        ticketUrl       : String;
+        ticketStatus    : String;  // raw Jira status name, e.g. "In Progress" - empty for STUB tickets
+        ticketResolved  : Boolean; // true once Jira reports the issue's statusCategory as 'done'
 
         slaDeadline   : Timestamp; // null once the review has no active stage clock (terminal)
         daysPending   : Integer;   // calendar days since the current stage's clock started

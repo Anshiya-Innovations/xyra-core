@@ -10,6 +10,7 @@ service AdminService {
         id        : String;
         name      : String;
         email     : String;
+        organization : String;
         role      : String;
         status    : String;
         createdAt : String;
@@ -20,7 +21,8 @@ service AdminService {
         name      : String,
         email     : String,
         password  : String,
-        roleCode  : String
+        roleCode   : String,
+        organization : String
     ) returns {
         success : Boolean;
         message : String;

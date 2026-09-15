@@ -14,18 +14,30 @@ module.exports = function (srv) {
     if (!resolved) return []
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Users, Roles } = await tenantEntities()
+    const { Users, Roles, Organizations } = await tenantEntities()
 
     const tx = tenantDb.tx()
     try {
-      const users = await tx.run(SELECT.from(Users))
-      const roles = await tx.run(SELECT.from(Roles))
+      const [users, roles, organizations] = await Promise.all([
+        tx.run(SELECT.from(Users)),
+        tx.run(SELECT.from(Roles)),
+        tx.run(SELECT.from(Organizations))
+      ])
       const roleById = new Map(roles.map(r => [r.ID, r]))
+      const defaultOrg = organizations.find((org) => org.orgCode === 'DEFAULT') || organizations[0]
+      const defaultOrganization = defaultOrg ? `${defaultOrg.orgCode} - ${defaultOrg.name}` : ''
+
+      if (defaultOrganization) {
+        await Promise.all(users
+          .filter((user) => !user.organization)
+          .map((user) => tx.run(UPDATE(Users).set({ organization: defaultOrganization }).where({ ID: user.ID }))))
+      }
 
       return users.map(u => ({
         id: u.ID,
         name: u.name,
         email: u.email,
+        organization: u.organization || defaultOrganization,
         role: u.role_ID && roleById.has(u.role_ID) ? roleById.get(u.role_ID).code : null,
         status: u.status,
         createdAt: u.createdAt
@@ -43,9 +55,10 @@ module.exports = function (srv) {
     const email = (req.data.email || '').trim()
     const password = req.data.password || ''
     const roleCode = (req.data.roleCode || '').trim().toUpperCase()
+    const organization = (req.data.organization || '').trim()
 
-    if (!subdomain || !name || !email || !password || !roleCode) {
-      return fail('name, email, password and role are required.')
+    if (!subdomain || !name || !email || !password || !roleCode || !organization) {
+      return fail('name, email, password, role and organization are required.')
     }
     if (!VALID_ROLES.includes(roleCode)) return fail('Admin accounts cannot be created here.')
 
@@ -65,7 +78,7 @@ module.exports = function (srv) {
 
       const id = cds.utils.uuid()
       const passwordHash = await hashPassword(password)
-      await tx.run(INSERT.into(Users).entries({ ID: id, name, email, passwordHash, role_ID: role.ID, status: 'ACTIVE' }))
+      await tx.run(INSERT.into(Users).entries({ ID: id, name, email, passwordHash, role_ID: role.ID, status: 'ACTIVE', organization }))
 
       return { success: true, message: 'User created.', userId: id }
     } finally {

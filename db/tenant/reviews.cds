@@ -36,14 +36,26 @@ entity Reviews : cuid, managed {
     // that can each be independently rejected; reusing it would collide the
     // moment two items under one Alert are rejected separately.
     //
-    // ponytail: ticketNumber/ticketSystem are a local placeholder, not a real
-    // ticketing integration - see lib/review_engine's generateTicketNumber().
-    // Swap that one function for a real API call when a real system (e.g.
-    // ServiceNow) is wired in; nothing else here changes.
+    // ticketSystem is 'JIRA' when lib/ticketing/jira.js successfully created a
+    // real issue (ticketNumber = the issue key, e.g. "XS-42"; ticketUrl = its
+    // browse link) - falls back to 'STUB' (review_engine's own
+    // generateTicketNumber(), no ticketUrl) whenever the deviation's
+    // Organization has no JiraSettings configured, or the Jira call fails -
+    // a ticketing outage never blocks a reviewer's decision.
     ticketNumber    : String(50);
     ticketLevel     : Integer;      // 1 or 2 - which level's REMEDIATE created it
     ticketCreatedAt : Timestamp;
     ticketSystem    : String(50) default 'STUB';
+    ticketUrl       : String(500);
+
+    // Kept in sync by lib/ticketing/jiraSync's poller (only ever set for
+    // ticketSystem='JIRA' - STUB tickets have no real status to poll).
+    // ticketResolved is derived from Jira's statusCategory ('done'), not a
+    // string match on ticketStatus's raw name - workflows/status names vary
+    // per Jira project, statusCategory doesn't.
+    ticketStatus          : String(50);
+    ticketResolved        : Boolean default false;
+    ticketStatusUpdatedAt : Timestamp;
 }
 
 // Every status change on a Review over time — genuinely 1:many, unlike Reviews

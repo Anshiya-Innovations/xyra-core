@@ -2,6 +2,7 @@ const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { logAudit } = require('../../lib/audit')
+const { listProjectStatuses } = require('../../lib/ticketing/jira')
 
 function toEntry(o, systemCount) {
   return {
@@ -203,5 +204,129 @@ module.exports = function (srv) {
     } finally {
       await tx.commit()
     }
+  })
+
+  srv.on('getJiraSettings', async (req) => {
+    const fail = (message) => ({ success: false, message, settings: null })
+    const subdomain = (req.data.subdomain || '').trim()
+    const organizationId = (req.data.organizationId || '').trim()
+    if (!subdomain || !organizationId) return fail('organizationId is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { JiraSettings } = await tenantEntities()
+    const tx = tenantDb.tx()
+    try {
+      const row = await tx.run(SELECT.one.from(JiraSettings).where({ organization_ID: organizationId }))
+      return {
+        success: true,
+        message: 'OK',
+        settings: {
+          enabled: !!(row && row.enabled),
+          siteUrl: (row && row.siteUrl) || '',
+          email: (row && row.email) || '',
+          projectKey: (row && row.projectKey) || '',
+          issueType: (row && row.issueType) || 'Task',
+          hasToken: !!(row && row.apiToken),
+          statusCreated: (row && row.statusCreated) || '',
+          statusInProgress: (row && row.statusInProgress) || '',
+          statusResolved: (row && row.statusResolved) || ''
+        }
+      }
+    } finally {
+      await tx.commit()
+    }
+  })
+
+  srv.on('updateJiraSettings', async (req) => {
+    const fail = (message) => ({ success: false, message })
+    const subdomain = (req.data.subdomain || '').trim()
+    const organizationId = (req.data.organizationId || '').trim()
+    if (!subdomain || !organizationId) return fail('organizationId is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const entities = await tenantEntities()
+    const { JiraSettings, Organizations } = entities
+    const tx = tenantDb.tx()
+    try {
+      const org = await tx.run(SELECT.one.from(Organizations).where({ ID: organizationId }))
+      if (!org) return fail('Organization not found.')
+
+      const patch = {
+        enabled: !!req.data.enabled,
+        siteUrl: (req.data.siteUrl || '').trim(),
+        email: (req.data.email || '').trim(),
+        projectKey: (req.data.projectKey || '').trim(),
+        issueType: (req.data.issueType || 'Task').trim(),
+        statusCreated: (req.data.statusCreated || '').trim(),
+        statusInProgress: (req.data.statusInProgress || '').trim(),
+        statusResolved: (req.data.statusResolved || '').trim()
+      }
+      // apiToken only written when provided - blank keeps whatever's on file,
+      // same as SystemCredentials' credUserId/credPassword edit behavior.
+      if (req.data.apiToken) patch.apiToken = req.data.apiToken
+
+      const existing = await tx.run(SELECT.one.from(JiraSettings).where({ organization_ID: organizationId }))
+      if (existing) {
+        await tx.run(UPDATE(JiraSettings).set(patch).where({ ID: existing.ID }))
+      } else {
+        await tx.run(INSERT.into(JiraSettings).entries({ ID: cds.utils.uuid(), organization_ID: organizationId, ...patch }))
+      }
+
+      await logAudit(tx, entities, {
+        action: 'JIRA_SETTINGS_UPDATE',
+        module: 'Organization',
+        objectType: 'JiraSettings',
+        objectId: org.orgCode,
+        objectLabel: `Jira Integration - ${org.orgCode}`,
+        description: `Updated Jira integration settings for '${org.orgCode}' (${patch.enabled ? 'enabled' : 'disabled'}, project ${patch.projectKey || 'none'}).`,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+
+      return { success: true, message: 'Jira settings updated.' }
+    } finally {
+      await tx.commit()
+    }
+  })
+
+  srv.on('getJiraStatusOptions', async (req) => {
+    const fail = (message) => ({ success: false, message, statuses: [] })
+    const subdomain = (req.data.subdomain || '').trim()
+    if (!subdomain) return fail('subdomain is required.')
+
+    const siteUrl = (req.data.siteUrl || '').trim()
+    const email = (req.data.email || '').trim()
+    const projectKey = (req.data.projectKey || '').trim()
+    let apiToken = (req.data.apiToken || '').trim()
+
+    // apiToken is write-only (never sent back to the form after a save) -
+    // fall back to whatever's already on file for this org so re-browsing
+    // statuses doesn't force re-pasting the token every time.
+    const organizationId = (req.data.organizationId || '').trim()
+    if (!apiToken && organizationId) {
+      const resolved = await resolveTenantBySubdomain(req, subdomain)
+      if (resolved) {
+        const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+        const { JiraSettings } = await tenantEntities()
+        const tx = tenantDb.tx()
+        try {
+          const row = await tx.run(SELECT.one.from(JiraSettings).where({ organization_ID: organizationId }))
+          if (row && row.apiToken) apiToken = row.apiToken
+        } finally {
+          await tx.commit()
+        }
+      }
+    }
+
+    const result = await listProjectStatuses({ siteUrl, email, apiToken, projectKey })
+    if (!result.success) return fail(result.message)
+
+    return { success: true, message: 'OK', statuses: result.statuses.map((s) => s.name) }
   })
 }

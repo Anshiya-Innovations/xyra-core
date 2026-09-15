@@ -6,6 +6,7 @@ using from './user';
 using from './permission';
 using from './reference';
 using from './organizations';
+using from './jira-settings';
 using from './sap';
 using from './controls';
 using from './alerts';

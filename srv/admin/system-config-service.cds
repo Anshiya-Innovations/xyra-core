@@ -89,7 +89,12 @@ service SystemConfigService {
         message : String;
     };
 
-    action deleteSystem(subdomain: String, id: String) returns {
+    action deleteSystem(
+        subdomain       : String,
+        id              : String,
+        performedBy     : String, // acting user's email, for the audit log
+        performedByRole : String
+    ) returns {
         success : Boolean;
         message : String;
     };

@@ -270,7 +270,8 @@ module.exports = function (srv) {
     if (!resolved) return fail('Tenant not found.')
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-    const { Systems } = await tenantEntities()
+    const entities = await tenantEntities()
+    const { Systems } = entities
 
     const tx = tenantDb.tx()
     try {
@@ -278,6 +279,19 @@ module.exports = function (srv) {
       if (!existing) return fail('System not found.')
 
       await tx.run(DELETE.from(Systems).where({ ID: id }))
+
+      await logAudit(tx, entities, {
+        action: 'SYSTEM_DELETE',
+        module: 'System Configuration',
+        objectType: 'System',
+        objectId: existing.systemId,
+        objectLabel: `${existing.systemId} (${existing.client})`,
+        description: `Deleted SAP System '${existing.systemId}' (Client ${existing.client}) from the landscape.`,
+        systemId: existing.systemId,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+
       return { success: true, message: 'System deleted.' }
     } finally {
       await tx.commit()

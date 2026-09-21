@@ -67,9 +67,10 @@ service OrganizationService {
         message : String;
     };
 
-    // Refused (not just discouraged) while any System still points at this
-    // org - reassign or remove those first, same defensive stance as other
-    // "would orphan real data" deletes in this codebase.
+    // Cascades: deletes every System under this org and everything that
+    // hangs off each one (control run history/logs, alerts, reviews), plus
+    // JiraSettings, then the Organization row itself. Irreversible - the
+    // frontend gates this behind a confirm dialog, not this action.
     action deleteOrganization(subdomain: String, id: String, performedBy: String, performedByRole: String) returns {
         success : Boolean;
         message : String;

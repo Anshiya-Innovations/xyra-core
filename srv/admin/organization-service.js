@@ -2,6 +2,7 @@ const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { logAudit } = require('../../lib/audit')
+const { deleteSystemCascade } = require('../../lib/admin/cascadeDelete')
 const { listProjectStatuses } = require('../../lib/ticketing/jira')
 
 function toEntry(o, systemCount) {
@@ -167,6 +168,11 @@ module.exports = function (srv) {
     }
   })
 
+  // Full cascade, not a "reassign systems first" refusal - the UI's confirm
+  // dialog is the safety gate here, same pattern as onDeleteSystem's
+  // MessageBox.confirm. Wipes every System under the org (and, per system,
+  // everything deleteSystem itself would wipe - see lib/admin/cascadeDelete)
+  // plus JiraSettings, then the Organization row itself.
   srv.on('deleteOrganization', async (req) => {
     const fail = (message) => ({ success: false, message })
     const subdomain = (req.data.subdomain || '').trim()
@@ -178,15 +184,21 @@ module.exports = function (srv) {
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
     const entities = await tenantEntities()
-    const { Organizations, Systems } = entities
+    const { Organizations, Systems, JiraSettings } = entities
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Organizations).where({ ID: id }))
       if (!existing) return fail('Organization not found.')
 
-      const systemCount = (await tx.run(SELECT.from(Systems).columns('ID').where({ organization_ID: id }))).length
-      if (systemCount > 0) return fail(`Cannot delete '${existing.orgCode}' - reassign or remove its ${systemCount} system(s) first.`)
+      const systems = await tx.run(SELECT.from(Systems).columns('ID').where({ organization_ID: id }))
+      for (const system of systems) {
+        await deleteSystemCascade(tx, entities, system.ID)
+      }
+      if (systems.length) {
+        await tx.run(DELETE.from(Systems).where({ organization_ID: id }))
+      }
 
+      await tx.run(DELETE.from(JiraSettings).where({ organization_ID: id }))
       await tx.run(DELETE.from(Organizations).where({ ID: id }))
 
       await logAudit(tx, entities, {
@@ -195,7 +207,7 @@ module.exports = function (srv) {
         objectType: 'Organization',
         objectId: existing.orgCode,
         objectLabel: `${existing.orgCode} (${existing.name})`,
-        description: `Deleted Organization '${existing.orgCode}'.`,
+        description: `Deleted Organization '${existing.orgCode}' (${existing.name}) and its ${systems.length} system(s), including all associated control runs, alerts, reviews and history.`,
         performedBy: req.data.performedBy,
         performedByRole: req.data.performedByRole
       })

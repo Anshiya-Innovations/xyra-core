@@ -4,6 +4,7 @@ const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { testConnection } = require('../../lib/connection_engine')
 const { notify } = require('../../lib/notification_engine')
 const { logAudit } = require('../../lib/audit')
+const { deleteSystemCascade } = require('../../lib/admin/cascadeDelete')
 const { DEFAULT_SLA_SETTINGS } = require('../../lib/review_engine/slaDefaults')
 
 const SLA_FIELDS = ['reviewer1Days', 'reviewer2Days', 'escalationDelayDays']
@@ -278,6 +279,7 @@ module.exports = function (srv) {
       const existing = await tx.run(SELECT.one.from(Systems).where({ ID: id }))
       if (!existing) return fail('System not found.')
 
+      await deleteSystemCascade(tx, entities, id)
       await tx.run(DELETE.from(Systems).where({ ID: id }))
 
       await logAudit(tx, entities, {

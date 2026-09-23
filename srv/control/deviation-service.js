@@ -10,11 +10,14 @@ function toDisplayStatus(incidentStatus) {
   return 'Open'
 }
 
-// AlertItems/Alerts.severity (CRITICAL/MEDIUM, see control_engine) -> the
+// AlertItems/Alerts.severity (LOW/MEDIUM/HIGH, see control_engine — CRITICAL
+// is a historical value from before Controls had a severity field) -> the
 // title-cased text the UI renders.
 function toDisplaySeverity(severity) {
   if (severity === 'CRITICAL') return 'Critical'
+  if (severity === 'HIGH') return 'High'
   if (severity === 'MEDIUM') return 'Medium'
+  if (severity === 'LOW') return 'Low'
   return severity || ''
 }
 

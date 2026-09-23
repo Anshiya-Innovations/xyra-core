@@ -52,9 +52,9 @@ function buildControlEntry(control, lookups) {
     description: control.description,
     category: control.category || '',
     controlType: control.controlType,
+    severity: control.severity || 'MEDIUM',
     frequency: control.frequency,
     cronExpression: control.cronExpression || '',
-    critical: control.critical,
     enabled: control.enabled,
     systemIds: lookups.systemIdsByControl.get(control.ID) || [],
     lastRunAt: control.lastRunAt,
@@ -71,8 +71,9 @@ function buildControlEntry(control, lookups) {
 // Full replace on every save — simplest correct approach given ControlRules
 // has no identity worth preserving across an edit (AlertItems/ControlRunHistory
 // snapshot their own sapObject/parameter/operator, so they're unaffected by
-// this - see db/tenant/alerts.cds).
-async function replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, controlId, rules, systemIds) {
+// this - see db/tenant/alerts.cds). System mapping (ControlSystemConfig) is
+// owned by SystemControlConfigService now, not touched here.
+async function replaceRules(tx, ControlRules, controlId, rules) {
   await tx.run(DELETE.from(ControlRules).where({ control_ID: controlId }))
   if (rules && rules.length) {
     const ruleEntries = rules.map((rule, i) => ({
@@ -88,14 +89,11 @@ async function replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, con
     }))
     await tx.run(INSERT.into(ControlRules).entries(ruleEntries))
   }
+}
 
-  await tx.run(DELETE.from(ControlSystemConfig).where({ control_ID: controlId }))
-  if (systemIds && systemIds.length) {
-    const configEntries = systemIds.map((systemId) => ({
-      ID: cds.utils.uuid(), control_ID: controlId, system_ID: systemId, enabled: true
-    }))
-    await tx.run(INSERT.into(ControlSystemConfig).entries(configEntries))
-  }
+const VALID_SEVERITIES = ['LOW', 'MEDIUM', 'HIGH']
+function normalizeSeverity(severity) {
+  return VALID_SEVERITIES.includes(severity) ? severity : 'MEDIUM'
 }
 
 module.exports = function (srv) {
@@ -161,7 +159,7 @@ module.exports = function (srv) {
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
     const entities = await tenantEntities()
-    const { Controls, ControlRules, ControlSystemConfig } = entities
+    const { Controls, ControlRules } = entities
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Controls).where({ code }))
@@ -174,12 +172,12 @@ module.exports = function (srv) {
         description,
         category: req.data.category || null,
         controlType: req.data.controlType || 'SECURITY',
+        severity: normalizeSeverity(req.data.severity),
         frequency: req.data.frequency || 'DAILY',
         cronExpression: req.data.cronExpression || null,
-        critical: !!req.data.critical,
         enabled: true
       }))
-      await replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, id, req.data.rules, req.data.systemIds)
+      await replaceRules(tx, ControlRules, id, req.data.rules)
 
       await logAudit(tx, entities, {
         action: 'CONTROL_CREATE',
@@ -210,7 +208,7 @@ module.exports = function (srv) {
 
     const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
     const entities = await tenantEntities()
-    const { Controls, ControlRules, ControlSystemConfig } = entities
+    const { Controls, ControlRules } = entities
     const tx = tenantDb.tx()
     try {
       const existing = await tx.run(SELECT.one.from(Controls).where({ ID: id }))
@@ -223,12 +221,12 @@ module.exports = function (srv) {
         description: sNewDesc,
         category: req.data.category || null,
         controlType: req.data.controlType || existing.controlType,
+        severity: normalizeSeverity(req.data.severity || existing.severity),
         frequency: sNewFreq,
         cronExpression: req.data.cronExpression || null,
-        critical: !!req.data.critical,
         enabled: req.data.enabled === undefined ? existing.enabled : !!req.data.enabled
       }).where({ ID: id }))
-      await replaceRulesAndSystems(tx, ControlRules, ControlSystemConfig, id, req.data.rules, req.data.systemIds)
+      await replaceRules(tx, ControlRules, id, req.data.rules)
 
       await logAudit(tx, entities, {
         action: 'CONTROL_UPDATE',

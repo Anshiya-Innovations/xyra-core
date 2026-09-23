@@ -13,9 +13,9 @@ entity Controls : cuid, managed {
     description    : String(500) not null;
     category       : String(20);           // Security, ITGC, Financial, SOX (frontend list, no dedicated field yet)
     controlType    : String(20) default 'SECURITY'; // SECURITY, BASIS, GXP — drives who reviews it (SOP 6.5)
+    severity       : String(10) default 'MEDIUM'; // LOW, MEDIUM, HIGH — which severity range this control's deviations fall under (drives Alert/AlertItem severity at run time, see control_engine)
     frequency      : String(20) default 'DAILY';     // DAILY, WEEKLY, MONTHLY, QUARTERLY, ANNUAL, REALTIME, CRON
     cronExpression : String(100); // only meaningful when frequency = CRON
-    critical       : Boolean default false; // feeds the "Critical Vulnerabilities" dashboard filter + Alert severity
     enabled        : Boolean default true;
 
     lastRunAt      : Timestamp;
@@ -24,12 +24,20 @@ entity Controls : cuid, managed {
 }
 
 // Which systems a Control is actually active on (a control can be individually
-// turned on/off per system).
+// turned on/off per system) — maintained from the System Control Config page,
+// not from the Control's own create/edit form (see srv/control/system-control-
+// config-service.js). deactivatedAt/lastRunAt/lastRunStatus/runCount exist for
+// that page's activate/deactivate action and its per-mapping details view;
+// `managed`'s createdAt already covers "when was this mapping created".
 @assert.unique: { controlSystem: [ control, system ] }
 entity ControlSystemConfig : cuid, managed {
-    control : Association to Controls not null;
-    system  : Association to Systems not null;
-    enabled : Boolean default true;
+    control       : Association to Controls not null;
+    system        : Association to Systems not null;
+    enabled       : Boolean default true;
+    deactivatedAt : Timestamp; // set when enabled flips false, cleared on re-activation
+    lastRunAt     : Timestamp;
+    lastRunStatus : String(10); // PASS, FAIL, ERROR
+    runCount      : Integer default 0;
 }
 
 // One condition line within a Control (1 Control : N ControlRules, checked in

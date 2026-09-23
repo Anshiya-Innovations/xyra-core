@@ -20,11 +20,11 @@ service ControlService {
         description    : String;
         category       : String;
         controlType    : String;
+        severity       : String; // LOW, MEDIUM, HIGH
         frequency      : String;
         cronExpression : String;
-        critical       : Boolean;
         enabled        : Boolean;
-        systemIds      : many String;
+        systemIds      : many String; // read-only here — maintained via SystemControlConfigService, not this service
         lastRunAt      : Timestamp;
         lastRunStatus  : String;
         nextRunAt      : Timestamp;
@@ -53,10 +53,9 @@ service ControlService {
         description     : String,
         category        : String,
         controlType     : String,
+        severity        : String, // LOW, MEDIUM, HIGH — defaults to MEDIUM
         frequency       : String,
         cronExpression  : String, // only meaningful when frequency='CRON'
-        critical        : Boolean,
-        systemIds       : many String,
         rules           : many ControlRuleEntry,
         performedBy     : String, // acting user's email, for the audit log
         performedByRole : String
@@ -66,19 +65,19 @@ service ControlService {
         id      : String;
     };
 
-    // code isn't editable — the row is targeted by id. rules/systemIds are
-    // always a full replace (delete+reinsert), see control-service.js.
+    // code isn't editable — the row is targeted by id. rules are always a full
+    // replace (delete+reinsert), see control-service.js. System mapping is not
+    // handled here — see SystemControlConfigService.
     action updateControl(
         subdomain       : String,
         id              : String,
         description     : String,
         category        : String,
         controlType     : String,
+        severity        : String,
         frequency       : String,
         cronExpression  : String,
-        critical        : Boolean,
         enabled         : Boolean,
-        systemIds       : many String,
         rules           : many ControlRuleEntry,
         performedBy     : String,
         performedByRole : String

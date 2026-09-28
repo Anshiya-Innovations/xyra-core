@@ -210,6 +210,82 @@ module.exports = function (srv) {
     }
   })
 
+  srv.on('getComplianceInsights', async (req) => {
+    const fail = (message) => ({ success: false, message, totalChecks: 0, passedChecks: 0, rules: [] })
+    const subdomain = (req.data.subdomain || '').trim()
+    if (!subdomain) return fail('subdomain is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const { ControlRunHistory, Controls, Systems, Alerts } = await tenantEntities()
+    const tx = tenantDb.tx()
+    try {
+      // Full-table reads, grouped in JS - same "small per-tenant dataset"
+      // reasoning as listDeviations. ponytail: ControlRunHistory grows every
+      // run forever; move this GROUP BY into SQL once it's big enough to matter.
+      const [history, controls, systems, alerts] = await Promise.all([
+        tx.run(SELECT.from(ControlRunHistory)
+          .columns('control_ID', 'system_ID', 'sapObject', 'parameter', 'operator', 'expectedValue', 'actualValue', 'deviationFlag', 'message', 'createdAt')
+          .orderBy('createdAt')),
+        tx.run(SELECT.from(Controls)),
+        tx.run(SELECT.from(Systems).columns('ID', 'systemId', 'client')),
+        tx.run(SELECT.from(Alerts).columns('control_ID', 'description'))
+      ])
+      const controlById = new Map(controls.map((c) => [c.ID, c]))
+      const systemById = new Map(systems.map((s) => [s.ID, s]))
+      // Deleted controls: recover their code from any of their alerts' run summaries.
+      const deletedCode = new Map()
+      alerts.forEach((a) => {
+        if (!controlById.has(a.control_ID) && !deletedCode.has(a.control_ID)) {
+          const code = controlCodeOf(null, a)
+          if (code) deletedCode.set(a.control_ID, code)
+        }
+      })
+
+      const groups = new Map()
+      let passedChecks = 0
+      for (const h of history) {
+        if (!h.deviationFlag) passedChecks++
+        const key = [h.control_ID, h.system_ID, h.sapObject, h.parameter].join('|')
+        let g = groups.get(key)
+        if (!g) {
+          const control = controlById.get(h.control_ID)
+          const system = systemById.get(h.system_ID)
+          g = {
+            controlId: control ? control.code : (deletedCode.get(h.control_ID) || 'Deleted control'),
+            controlDescription: control ? control.description : '',
+            controlSeverity: control ? (control.severity || 'MEDIUM') : '',
+            controlExists: !!control,
+            systemId: system ? system.systemId : 'Deleted system',
+            client: system ? system.client : '',
+            systemExists: !!system,
+            sapObject: h.sapObject,
+            parameter: h.parameter,
+            checkCount: 0,
+            failCount: 0
+          }
+          groups.set(key, g)
+        }
+        g.checkCount++
+        if (h.deviationFlag) g.failCount++
+        // Rows arrive oldest-first, so the last write is the latest check.
+        g.operator = h.operator
+        g.expectedValue = h.expectedValue
+        g.lastActualValue = h.actualValue
+        g.lastPassed = !h.deviationFlag
+        g.lastUnreachable = !!(h.message && h.message.startsWith('Unable to retrieve value'))
+        g.lastMessage = h.message || ''
+        g.lastCheckedAt = h.createdAt
+      }
+
+      return { success: true, message: 'OK', totalChecks: history.length, passedChecks, rules: [...groups.values()] }
+    } finally {
+      await tx.commit()
+    }
+  })
+
   srv.on('getControlLogs', async (req) => {
     const fail = (message) => ({ success: false, message, logs: [] })
     const subdomain = (req.data.subdomain || '').trim()

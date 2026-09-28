@@ -57,5 +57,5 @@ test('buildTicket produces a specific, valid Jira ticket', () => {
   walk(t.description, (n) => {
     if (n.marks && n.marks.some((m) => m.type === 'link' && m.attrs.href === 'http://localhost:5173/deviation-report/a1')) hasLink = true
   })
-  assert.ok(hasLink, 'Open in Xyra link uses XYRA_APP_URL without a double slash')
+  assert.ok(hasLink, 'Open in Xyra link uses the tenant appUrl without a double slash')
 })

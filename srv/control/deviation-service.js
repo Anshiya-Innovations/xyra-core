@@ -21,6 +21,16 @@ function toDisplaySeverity(severity) {
   return severity || ''
 }
 
+// deleteControl keeps Alerts as compliance history, so alert.control_ID can
+// dangle (e.g. a control deleted and re-created under the same code). Fall
+// back to the code control_engine wrote into the run summary:
+// "Control XYRA-08 on S4D/100: 2 deviation(s)."
+function controlCodeOf(control, alert) {
+  if (control) return control.code
+  const m = /^Control (\S+) on /.exec(alert.description || '')
+  return m ? m[1] : ''
+}
+
 async function loadAlertHeader(tx, Controls, Systems, AlertItems, alert) {
   const control = await tx.run(SELECT.one.from(Controls).where({ ID: alert.control_ID }))
   const system = await tx.run(
@@ -32,7 +42,7 @@ async function loadAlertHeader(tx, Controls, Systems, AlertItems, alert) {
 
   return {
     id: alert.ID,
-    controlId: control ? control.code : '',
+    controlId: controlCodeOf(control, alert),
     controlDescription: control ? control.description : '',
     systemId: system ? system.systemId : '',
     client: system ? system.client : '',
@@ -75,7 +85,7 @@ function buildAlertHeader(alert, lookups) {
 
   return {
     id: alert.ID,
-    controlId: control ? control.code : '',
+    controlId: controlCodeOf(control, alert),
     controlDescription: control ? control.description : '',
     systemId: system ? system.systemId : '',
     client: system ? system.client : '',

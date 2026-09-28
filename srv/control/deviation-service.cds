@@ -80,6 +80,39 @@ service DeviationService {
         logs    : many LogEntry;
     };
 
+    // One rule on one system, aggregated over its whole ControlRunHistory.
+    type RuleCheckStat {
+        controlId          : String; // Controls.code (or recovered code if the control was deleted)
+        controlDescription : String;
+        controlSeverity    : String; // LOW, MEDIUM, HIGH ('' if the control was deleted)
+        controlExists      : Boolean;
+        systemId           : String;
+        client             : String;
+        systemExists       : Boolean;
+        sapObject          : String;
+        parameter          : String;
+        operator           : String;
+        expectedValue      : String; // from the latest check
+        lastActualValue    : String;
+        lastPassed         : Boolean;
+        lastUnreachable    : Boolean; // latest check couldn't read the value at all
+        lastMessage        : String;
+        lastCheckedAt      : Timestamp;
+        checkCount         : Integer;
+        failCount          : Integer;
+    };
+
+    // AI Insights page: the raw material for compliance recommendations -
+    // the score's numerator/denominator plus a per-rule breakdown, so the
+    // page can say exactly which checks are dragging the score down.
+    action getComplianceInsights(subdomain: String) returns {
+        success      : Boolean;
+        message      : String;
+        totalChecks  : Integer;
+        passedChecks : Integer;
+        rules        : many RuleCheckStat;
+    };
+
     // AutomationMonitoring page's "Logs" dialog — controlId is Controls.code.
     action getControlLogs(subdomain: String, controlId: String, limit: Integer) returns {
         success : Boolean;

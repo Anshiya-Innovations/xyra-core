@@ -78,6 +78,19 @@ service SystemControlConfigService {
         message : String;
     };
 
+    // Removes the mapping row itself (the control stops running on that
+    // system). The Control, its rules, and all run history / alerts / logs
+    // for that control+system are untouched - that's compliance evidence.
+    action deleteSystemControlConfig(
+        subdomain       : String,
+        id              : String,
+        performedBy     : String,
+        performedByRole : String
+    ) returns {
+        success : Boolean;
+        message : String;
+    };
+
     // Manual trigger scoped to just this mapping's system - calls
     // lib/control_engine.runControl(controlId, systemId) directly, doesn't
     // wait for the scheduler's next tick. See ControlService.runControlNow

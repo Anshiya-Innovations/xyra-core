@@ -3,6 +3,7 @@ const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager'
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { logAudit } = require('../../lib/audit')
 const { runControl } = require('../../lib/control_engine')
+const { notify } = require('../../lib/notification_engine')
 
 function buildEntry(config, control, system) {
   return {
@@ -180,6 +181,68 @@ module.exports = function (srv) {
     } finally {
       await tx.commit()
     }
+  })
+
+  srv.on('deleteSystemControlConfig', async (req) => {
+    const fail = (message) => ({ success: false, message })
+    const subdomain = (req.data.subdomain || '').trim()
+    const id = (req.data.id || '').trim()
+    if (!subdomain || !id) return fail('id is required.')
+
+    const resolved = await resolveTenantBySubdomain(req, subdomain)
+    if (!resolved) return fail('Tenant not found.')
+
+    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const entities = await tenantEntities()
+    const { Controls, Systems, ControlSystemConfig } = entities
+    const tx = tenantDb.tx()
+    let label
+    try {
+      const existing = await tx.run(SELECT.one.from(ControlSystemConfig).where({ ID: id }))
+      if (!existing) return fail('System Control Config not found.')
+
+      const control = await tx.run(SELECT.one.from(Controls).where({ ID: existing.control_ID }))
+      const system = await tx.run(SELECT.one.from(Systems).where({ ID: existing.system_ID }))
+      const code = control ? control.code : existing.control_ID
+      const sysId = system ? system.systemId : existing.system_ID
+      label = { code, sysId, client: system ? system.client : '' }
+
+      // Only the mapping row - runControl selects target systems from
+      // ControlSystemConfig, so the control simply stops running here.
+      // ControlRunHistory/ControlRunLogs/Alerts key on control_ID+system_ID,
+      // not on this row, so that history survives untouched.
+      await tx.run(DELETE.from(ControlSystemConfig).where({ ID: id }))
+
+      await logAudit(tx, entities, {
+        action: 'SYSTEM_CONTROL_CONFIG_DELETE',
+        module: 'System Control Config',
+        objectType: 'ControlSystemConfig',
+        objectId: id,
+        objectLabel: `${code} -> ${sysId}`,
+        description: `Deleted mapping of control '${code}' on system '${sysId}${label.client ? `/${label.client}` : ''}'. Run history was retained.`,
+        previousValue: `Enabled: ${existing.enabled ? 'Yes' : 'No'} | Runs: ${existing.runCount || 0} | Last run: ${existing.lastRunStatus || 'never'}`,
+        controlId: control ? control.code : null,
+        systemId: system ? system.systemId : null,
+        performedBy: req.data.performedBy,
+        performedByRole: req.data.performedByRole
+      })
+    } finally {
+      await tx.commit()
+    }
+
+    // After commit, fire-and-forget - same as every other notify() call site.
+    notify(resolved.tenant.ID, resolved.databaseName, {
+      title: 'Control Mapping Deleted',
+      message: `Control ${label.code} will no longer run on system ${label.sysId}${label.client ? ` (Client ${label.client})` : ''}.`,
+      category: 'CONFIG',
+      priority: 'MEDIUM',
+      targetPage: 'SystemControlConfig',
+      targetRecord: label.code,
+      icon: 'sap-icon://delete',
+      iconClass: 'xyraNotifyIconRed'
+    }).catch((err) => console.error('notify(deleteSystemControlConfig) failed:', err))
+
+    return { success: true, message: 'System Control Config deleted.' }
   })
 
   srv.on('runSystemControlConfigNow', async (req) => {

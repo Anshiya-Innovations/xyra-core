@@ -1,5 +1,6 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
 const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
+const { controlCodeOf } = require('../../lib/control_engine/controlCode')
 
 // Alerts.incidentStatus (NEW/IN_PROCESS/RESOLVED/CLOSED) -> the 3 buckets the
 // Deviation Report UI actually has. CLOSED folds into Resolved - there's no
@@ -19,16 +20,6 @@ function toDisplaySeverity(severity) {
   if (severity === 'MEDIUM') return 'Medium'
   if (severity === 'LOW') return 'Low'
   return severity || ''
-}
-
-// deleteControl keeps Alerts as compliance history, so alert.control_ID can
-// dangle (e.g. a control deleted and re-created under the same code). Fall
-// back to the code control_engine wrote into the run summary:
-// "Control XYRA-08 on S4D/100: 2 deviation(s)."
-function controlCodeOf(control, alert) {
-  if (control) return control.code
-  const m = /^Control (\S+) on /.exec(alert.description || '')
-  return m ? m[1] : ''
 }
 
 async function loadAlertHeader(tx, Controls, Systems, AlertItems, alert) {

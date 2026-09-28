@@ -4,16 +4,14 @@
 // Usage:
 //   cds watch   (in another terminal)
 //   node scripts/test-onboarding.js [baseUrl]
-//
-// Prints the admin's one-time temporary password along the way — nothing else
-// surfaces it (it's hashed in the DB, never stored in plaintext).
+// (sends PLATFORM_ADMIN_EMAIL, default xyra.admin@gmail.com, as the platform admin)
 
 const baseUrl = process.argv[2] || 'http://localhost:4004'
 
 async function postJSON(path, body) {
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-platform-admin': process.env.PLATFORM_ADMIN_EMAIL || 'xyra.admin@gmail.com' },
     body: JSON.stringify(body)
   })
   return res.json()
@@ -39,7 +37,7 @@ async function main() {
 
   console.log('\n3) Logging in as the generated admin...')
   const login = await postJSON('/api/auth/login', {
-    subdomain, email: adminEmail, password: prov.adminTemporaryPassword
+    subdomain, email: adminEmail
   })
   console.log(login)
   if (!login.success) throw new Error(`Login failed: ${login.message}`)
@@ -47,7 +45,6 @@ async function main() {
   console.log(`\n✅ Full flow OK — ${login.name} (role: ${login.role}) can log in to "${subdomain}".`)
   console.log(`   tenantId: ${reg.tenantId}`)
   console.log(`   admin email: ${adminEmail}`)
-  console.log(`   admin temp password: ${prov.adminTemporaryPassword}`)
   console.log('\n   (This tenant and its database were NOT cleaned up — this script leaves them in place for further testing.)')
 }
 

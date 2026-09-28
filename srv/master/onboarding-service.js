@@ -1,5 +1,5 @@
 const cds = require('@sap/cds')
-const { fullDomainFor } = require('../../lib/platform')
+const { fullDomainFor, logPlatformAudit } = require('../../lib/platform')
 
 const SUBDOMAIN_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -81,6 +81,8 @@ module.exports = function (srv) {
       if (/domainname/i.test(err.message || '')) return fail('Subdomain already exists.')
       return fail('A conflicting tenant record already exists.')
     }
+
+    await logPlatformAudit(tenantId, 'TENANT_CREATED', `${companyName} (${fullDomain}), plan ${planCode}, admin ${adminEmail}`, req.headers['x-platform-admin'])
 
     return {
       success: true,

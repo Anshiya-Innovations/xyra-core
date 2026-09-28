@@ -4,6 +4,7 @@ const { deployTenantSchema } = require('../lib/provisioning/capDeploy')
 const { seedInitialData, createAdminUser } = require('../lib/provisioning/seed')
 const { dnsService } = require('../lib/provisioning/dns')
 const { markTenantActive } = require('../lib/provisioning/masterUpdate')
+const { logPlatformAudit } = require('../lib/platform')
 
 // ponytail: no real app infrastructure target exists yet — this is just what the
 // DNS record would point at once one does. Swap for the real LB/ingress hostname.
@@ -21,7 +22,7 @@ async function updateJob(jobId, fields) {
 // Runs (or re-runs) the full provisioning pipeline for one tenant. Used by both
 // "start" and "retry" — per-step idempotency (see lib/provisioning/*) means a
 // retry is just "run the whole thing again", not a resume-from-checkpoint system.
-async function runProvisioning(tenantId) {
+async function runProvisioning(tenantId, performedBy) {
   const { Tenants, Domains, Provisioning } = cds.entities('xyra.master')
 
   const tenant = await SELECT.one.from(Tenants).where({ ID: tenantId })
@@ -55,7 +56,6 @@ async function runProvisioning(tenantId) {
   await updateJob(job.ID, { status: 'RUNNING', startedAt: new Date().toISOString(), errorMessage: null })
 
   let step = 'CREATE_DATABASE'
-  let temporaryPassword = null
   try {
     const dbName = tenantDatabaseName(subdomain)
     await createTenantDatabase(dbName)
@@ -70,8 +70,7 @@ async function runProvisioning(tenantId) {
     await updateJob(job.ID, { currentStep: step })
 
     step = 'CREATE_ADMIN'
-    const adminResult = await createAdminUser(tenantDb, { name: tenant.adminName, email: tenant.adminEmail })
-    temporaryPassword = adminResult.temporaryPassword
+    await createAdminUser(tenantDb, { name: tenant.adminName, email: tenant.adminEmail })
     await updateJob(job.ID, { currentStep: step })
 
     step = 'CREATE_DNS'
@@ -91,17 +90,19 @@ async function runProvisioning(tenantId) {
     })
   } catch (err) {
     await updateJob(job.ID, { status: 'FAILED', currentStep: step, errorMessage: String(err.message || err) })
+    await logPlatformAudit(tenantId, 'PROVISIONING_FAILED', `Step ${step}: ${err.message}`, performedBy)
     return { success: false, message: `Provisioning failed at step ${step}: ${err.message}` }
   }
 
-  // temporaryPassword is shown once, here, and never again — it's already hashed in the DB.
+  await logPlatformAudit(tenantId, 'TENANT_PROVISIONED', `Database ${tenantDatabaseName(subdomain)} ready.`, performedBy)
+
+  // No password in the response — tenant sign-in is email-only (AuthService.login).
   return {
     success: true,
     tenantId,
     status: 'ACTIVE',
     message: 'Tenant provisioned successfully.',
-    adminEmail: tenant.adminEmail,
-    adminTemporaryPassword: temporaryPassword
+    adminEmail: tenant.adminEmail
   }
 }
 

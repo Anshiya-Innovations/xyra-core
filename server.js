@@ -27,9 +27,24 @@ cds.on('bootstrap', (app) => {
     next()
   })
 
+  // Platform-admin routes (xyra-admin) — email-only sign-in, same interim trust
+  // model as tenant AuthService.login (pending real SSO): the x-platform-admin
+  // header must carry an email listed in PLATFORM_ADMIN_EMAILS (comma-separated).
+  // Unset = these routes are off entirely, never open.
+  // ponytail: an email alone is guessable — swap for an SSO-issued token when
+  // tenant SSO lands; this guard is the one place to change.
+  const adminEmails = (process.env.PLATFORM_ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+  app.use(['/api/platform', '/api/onboarding', '/api/provisioning', '/odata/v4/platform'], (req, res, next) => {
+    if (!adminEmails.length) return res.status(503).json({ success: false, message: 'Platform admin is disabled (PLATFORM_ADMIN_EMAILS not set).' })
+    if (!adminEmails.includes(String(req.headers['x-platform-admin'] || '').trim().toLowerCase())) {
+      return res.status(401).json({ success: false, message: 'This email is not a platform admin.' })
+    }
+    next()
+  })
+
   const wrap = (fn) => async (req, res) => {
     try {
-      res.json(await fn(req.params.tenantId))
+      res.json(await fn(req.params.tenantId, req.headers['x-platform-admin']))
     } catch (err) {
       res.status(500).json({ success: false, message: err.message })
     }

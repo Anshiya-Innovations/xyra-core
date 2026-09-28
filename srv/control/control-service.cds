@@ -7,7 +7,6 @@ service ControlService {
         id            : String;
         sortOrder     : Integer;
         sapObject     : String;
-        client        : String;
         parameterType : String;
         parameter     : String;
         operator      : String;

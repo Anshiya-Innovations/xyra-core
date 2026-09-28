@@ -6,7 +6,7 @@ const { logAudit } = require('../../lib/audit')
 
 function toRuleEntry(r) {
   return {
-    id: r.ID, sortOrder: r.sortOrder, sapObject: r.sapObject, client: r.client,
+    id: r.ID, sortOrder: r.sortOrder, sapObject: r.sapObject,
     parameterType: r.parameterType, parameter: r.parameter, operator: r.operator, expectedValue: r.expectedValue
   }
 }
@@ -81,7 +81,6 @@ async function replaceRules(tx, ControlRules, controlId, rules) {
       control_ID: controlId,
       sortOrder: rule.sortOrder || i + 1,
       sapObject: rule.sapObject,
-      client: rule.client,
       parameterType: rule.parameterType || 'GENERAL',
       parameter: rule.parameter,
       operator: rule.operator,

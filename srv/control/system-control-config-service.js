@@ -162,7 +162,9 @@ module.exports = function (srv) {
       const control = await tx.run(SELECT.one.from(Controls).where({ ID: existing.control_ID }))
       const system = await tx.run(SELECT.one.from(Systems).where({ ID: existing.system_ID }))
       await logAudit(tx, entities, {
-        action: enabled ? 'SYSTEM_CONTROL_CONFIG_ACTIVATE' : 'SYSTEM_CONTROL_CONFIG_DEACTIVATE',
+        // AuditLogs.action is varchar(30) - 'SYSTEM_CONTROL_CONFIG_DEACTIVATE' (32
+        // chars) overflowed it and rolled back the whole activate/deactivate tx.
+        action: enabled ? 'SYSTEM_CONTROL_CONFIG_ACTIVATE' : 'SYSTEM_CONTROL_CONFIG_STOP',
         module: 'System Control Config',
         objectType: 'ControlSystemConfig',
         objectId: id,

@@ -43,15 +43,16 @@ entity ControlSystemConfig : cuid, managed {
 // One condition line within a Control (1 Control : N ControlRules, checked in
 // sortOrder). Replaces RuleParameters entirely — that entity's fields
 // (tier/parameterId/exceptionValue) predated the actual Rule Builder UI and
-// didn't match it. Each frontend "preset + custom override" pair (client/
-// customClient, parameter/customParameter, expectedValue/customExpectedValue)
-// collapses into one column here holding the final resolved value — the
-// engine only ever needs that, not which UI path produced it.
+// didn't match it. Each frontend "preset + custom override" pair (parameter/
+// customParameter, expectedValue/customExpectedValue) collapses into one
+// column here holding the final resolved value — the engine only ever needs
+// that, not which UI path produced it. Client isn't a rule-level field —
+// which client gets checked is purely a property of the System the control
+// runs against (Systems.client), not the rule.
 entity ControlRules : cuid, managed {
     control       : Association to Controls not null;
     sortOrder     : Integer not null default 1;
     sapObject     : String(50)  not null; // SAP*, DDIC, ..., SDMI_*, or a free-text override
-    client        : String(30)  not null; // 'All' | '000'..'300' | resolved override
     parameterType : String(20) default 'GENERAL'; // GENERAL | SETGET | DEFAULT — matches xyra-s4's object_parameters
     parameter     : String(100) not null; // resolved value only
     operator      : String(20)  not null; // EQUALS, NOT_EQUALS, CONTAINS, NOT_CONTAINS, EXISTS, NOT_EXISTS, GT, LT, GTE, LTE

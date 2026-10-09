@@ -1,6 +1,5 @@
 const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { logAudit } = require('../../lib/audit')
 const { runControl } = require('../../lib/control_engine')
 const { notify } = require('../../lib/notification_engine')
@@ -44,13 +43,10 @@ async function loadJoined(tx, entities) {
 module.exports = function (srv) {
   srv.on('listSystemControlConfigs', async (req) => {
     const fail = (message) => ({ success: false, message, configs: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -62,13 +58,10 @@ module.exports = function (srv) {
 
   srv.on('listMappableControlsAndSystems', async (req) => {
     const fail = (message) => ({ success: false, message, controls: [], systems: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Controls, Systems } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -92,15 +85,13 @@ module.exports = function (srv) {
 
   srv.on('createSystemControlConfig', async (req) => {
     const fail = (message) => ({ success: false, message, id: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const controlId = (req.data.controlId || '').trim()
     const systemId = (req.data.systemId || '').trim()
-    if (!subdomain || !controlId || !systemId) return fail('Control and System are required.')
+    if (!controlId || !systemId) return fail('Control and System are required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, Systems, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
@@ -127,8 +118,8 @@ module.exports = function (srv) {
         description: `Mapped control '${control.code}' to run on system '${system.systemId}/${system.client}'.`,
         controlId: control.code,
         systemId: system.systemId,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'System Control Config created.', id }
@@ -139,14 +130,12 @@ module.exports = function (srv) {
 
   srv.on('setSystemControlConfigStatus', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, Systems, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
@@ -173,8 +162,8 @@ module.exports = function (srv) {
         description: `${enabled ? 'Activated' : 'Deactivated'} control '${control ? control.code : existing.control_ID}' on system '${system ? system.systemId : existing.system_ID}'.`,
         controlId: control ? control.code : null,
         systemId: system ? system.systemId : null,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: `System Control Config ${enabled ? 'activated' : 'deactivated'}.` }
@@ -185,14 +174,12 @@ module.exports = function (srv) {
 
   srv.on('deleteSystemControlConfig', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, Systems, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
@@ -223,15 +210,15 @@ module.exports = function (srv) {
         previousValue: `Enabled: ${existing.enabled ? 'Yes' : 'No'} | Runs: ${existing.runCount || 0} | Last run: ${existing.lastRunStatus || 'never'}`,
         controlId: control ? control.code : null,
         systemId: system ? system.systemId : null,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
     } finally {
       await tx.commit()
     }
 
     // After commit, fire-and-forget - same as every other notify() call site.
-    notify(resolved.tenant.ID, resolved.databaseName, {
+    notify(tenantId, databaseName, {
       title: 'Control Mapping Deleted',
       message: `Control ${label.code} will no longer run on system ${label.sysId}${label.client ? ` (Client ${label.client})` : ''}.`,
       category: 'CONFIG',
@@ -247,14 +234,12 @@ module.exports = function (srv) {
 
   srv.on('runSystemControlConfigNow', async (req) => {
     const fail = (message) => ({ success: false, message, deviationsFound: null, alertsCreated: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { ControlSystemConfig } = entities
     const tx = tenantDb.tx()
@@ -266,7 +251,7 @@ module.exports = function (srv) {
     }
     if (!config) return fail('System Control Config not found.')
 
-    const result = await runControl(resolved.tenant.ID, resolved.databaseName, config.control_ID, config.system_ID)
+    const result = await runControl(tenantId, databaseName, config.control_ID, config.system_ID)
 
     // runControl manages its own tx internally and doesn't expose one to
     // piggyback on - open a small separate one just for the audit row, after
@@ -289,8 +274,8 @@ module.exports = function (srv) {
           description: `Ran control '${code}' now on system '${sysId}': ${result.deviationsFound} deviation(s) found, ${result.alertsCreated} alert(s) created.`,
           controlId: code,
           systemId: sysId,
-          performedBy: req.data.performedBy,
-          performedByRole: req.data.performedByRole
+          performedBy: req.user.attr.email,
+          performedByRole: req.user.attr.persona
         })
       } finally {
         await auditTx.commit()
@@ -302,14 +287,12 @@ module.exports = function (srv) {
 
   srv.on('getSystemControlConfigDetail', async (req) => {
     const fail = (message) => ({ success: false, message, detail: null, logs: [] })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, Systems, ControlSystemConfig, ControlRunLogs } = entities
     const tx = tenantDb.tx()

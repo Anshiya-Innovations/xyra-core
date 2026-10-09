@@ -3,6 +3,7 @@
     "@cap-js/postgres": "^3.0.1",
     "@cap-js/sqlite": "^3.0.2",
     "@sap/cds": "^10.0.4",
+    "express": "^5.2.1",
     "pg": "^8.22.0"
   },
   "devDependencies": {
@@ -16,6 +17,10 @@
       "db": {
         "kind": "postgres",
         "pool": { "acquireTimeoutMillis": 10000 }
+      },
+      "auth": {
+        "kind": "custom",
+        "impl": "lib/auth/middleware.js"
       }
     },
     "server": {

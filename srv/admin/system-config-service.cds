@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other services —
-// no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/system-config'
 service SystemConfigService {
 
@@ -26,14 +25,13 @@ service SystemConfigService {
         lastConnectionStatus : String; // ONLINE/OFFLINE/UNKNOWN, set by testSystemConnection
     };
 
-    action listSystems(subdomain: String) returns {
+    action listSystems() returns {
         success : Boolean;
         message : String;
         systems : many SystemEntry;
     };
 
     action createSystem(
-        subdomain      : String,
         sysId          : String,
         client         : String,
         sysType        : String,
@@ -50,9 +48,7 @@ service SystemConfigService {
         instanceNo : String,
         endpoint   : String, // full base URL, e.g. http://localhost:8000 — see connection_engine
         credUserId : String, // Basic Auth user; leave both cred fields empty to skip storing credentials
-        credPassword : String,
-        performedBy : String, // acting user's email, for the audit log
-        performedByRole : String
+        credPassword : String
     ) returns {
         success : Boolean;
         message : String;
@@ -64,7 +60,6 @@ service SystemConfigService {
     // credPassword are only written when non-empty, so leaving them blank on
     // an edit keeps whatever credentials are already on file.
     action updateSystem(
-        subdomain      : String,
         id             : String,
         client         : String,
         sysType        : String,
@@ -81,19 +76,14 @@ service SystemConfigService {
         instanceNo : String,
         endpoint   : String,
         credUserId : String,
-        credPassword : String,
-        performedBy : String,
-        performedByRole : String
+        credPassword : String
     ) returns {
         success : Boolean;
         message : String;
     };
 
     action deleteSystem(
-        subdomain       : String,
-        id              : String,
-        performedBy     : String, // acting user's email, for the audit log
-        performedByRole : String
+        id              : String
     ) returns {
         success : Boolean;
         message : String;
@@ -102,7 +92,7 @@ service SystemConfigService {
     // Reaches the system's authenticated ping endpoint with the credentials
     // on file — see lib/connection_engine. Doesn't fail the request on a
     // rejected/unreachable system, that's a normal outcome to report back.
-    action testSystemConnection(subdomain: String, id: String) returns {
+    action testSystemConnection(id: String) returns {
         success    : Boolean;
         message    : String;
         statusCode : Integer;
@@ -115,19 +105,16 @@ service SystemConfigService {
         escalationDelayDays : Integer;
     };
 
-    action getSlaSettings(subdomain: String) returns {
+    action getSlaSettings() returns {
         success  : Boolean;
         message  : String;
         settings : SlaSettingsEntry;
     };
 
     action updateSlaSettings(
-        subdomain           : String,
         reviewer1Days       : Integer,
         reviewer2Days       : Integer,
-        escalationDelayDays : Integer,
-        performedBy         : String,
-        performedByRole     : String
+        escalationDelayDays : Integer
     ) returns {
         success : Boolean;
         message : String;

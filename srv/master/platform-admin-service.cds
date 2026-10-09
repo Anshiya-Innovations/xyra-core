@@ -1,6 +1,7 @@
 // Global (platform) admin API for xyra-admin — reads/writes the Master Layer
 // (xyra_master) only, never a tenant database. Every route under this path is
-// gated by the x-platform-admin email check in server.js, not by tenant auth.
+// gated by a platform-admin session token (server.js), never a tenant token.
+@requires: 'platform-admin'
 @path: '/api/platform'
 service PlatformAdminService {
 
@@ -64,6 +65,14 @@ service PlatformAdminService {
         success : Boolean;
         message : String;
         logs    : many AuditEntry;
+    };
+
+
+    // TenantPoolManager counters (JSON) — hit/miss/create/evict, connect latency.
+    action getPoolStats() returns {
+        success : Boolean;
+        message : String;
+        stats   : LargeString;
     };
 
 }

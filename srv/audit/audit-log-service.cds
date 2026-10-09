@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other
-// services — no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/audit-log'
 service AuditLogService {
 
@@ -26,7 +25,6 @@ service AuditLogService {
     // action is logged server-side, inside the same tx as the real write —
     // see lib/audit/index.js.
     action logEvent(
-        subdomain       : String,
         action          : String,
         module          : String,
         objectType      : String,
@@ -37,15 +35,13 @@ service AuditLogService {
         newValue        : String,
         result          : String,
         systemId        : String,
-        controlId       : String,
-        performedBy     : String,
-        performedByRole : String
+        controlId       : String
     ) returns {
         success : Boolean;
         message : String;
     };
 
-    action listAuditLogs(subdomain: String) returns {
+    action listAuditLogs() returns {
         success : Boolean;
         message : String;
         logs    : many AuditLogEntry;

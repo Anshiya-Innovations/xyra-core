@@ -1,5 +1,4 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { controlCodeOf } = require('../../lib/control_engine/controlCode')
 
 // Alerts.incidentStatus (NEW/IN_PROCESS/RESOLVED/CLOSED) -> the 3 buckets the
@@ -114,13 +113,10 @@ function matchesFilters(header, f) {
 module.exports = function (srv) {
   srv.on('listDeviations', async (req) => {
     const fail = (message) => ({ success: false, message, headers: [], kpi: {} })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Alerts, ControlRunHistory } = entities
     const tx = tenantDb.tx()
@@ -156,14 +152,12 @@ module.exports = function (srv) {
 
   srv.on('getDeviationDetail', async (req) => {
     const fail = (message) => ({ success: false, message, header: null, items: [] })
-    const subdomain = (req.data.subdomain || '').trim()
     const alertId = (req.data.alertId || '').trim()
-    if (!subdomain || !alertId) return fail('alertId is required.')
+    if (!alertId) return fail('alertId is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Alerts, AlertItems, Controls, Systems } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -192,14 +186,12 @@ module.exports = function (srv) {
 
   srv.on('getRunLogs', async (req) => {
     const fail = (message) => ({ success: false, message, logs: [] })
-    const subdomain = (req.data.subdomain || '').trim()
     const alertId = (req.data.alertId || '').trim()
-    if (!subdomain || !alertId) return fail('alertId is required.')
+    if (!alertId) return fail('alertId is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { ControlRunLogs } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -212,13 +204,10 @@ module.exports = function (srv) {
 
   srv.on('getComplianceInsights', async (req) => {
     const fail = (message) => ({ success: false, message, totalChecks: 0, passedChecks: 0, rules: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { ControlRunHistory, Controls, Systems, Alerts } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -288,14 +277,12 @@ module.exports = function (srv) {
 
   srv.on('getControlLogs', async (req) => {
     const fail = (message) => ({ success: false, message, logs: [] })
-    const subdomain = (req.data.subdomain || '').trim()
     const controlId = (req.data.controlId || '').trim()
-    if (!subdomain || !controlId) return fail('controlId is required.')
+    if (!controlId) return fail('controlId is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Controls, ControlRunLogs } = await tenantEntities()
     const tx = tenantDb.tx()
     try {

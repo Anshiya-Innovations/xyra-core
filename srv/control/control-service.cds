@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other
-// services — no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/control'
 service ControlService {
 
@@ -34,20 +33,19 @@ service ControlService {
         modifiedBy     : String;
     };
 
-    action listControls(subdomain: String) returns {
+    action listControls() returns {
         success  : Boolean;
         message  : String;
         controls : many ControlEntry;
     };
 
-    action getControl(subdomain: String, id: String) returns {
+    action getControl(id: String) returns {
         success : Boolean;
         message : String;
         control : ControlEntry;
     };
 
     action createControl(
-        subdomain       : String,
         code            : String,
         description     : String,
         category        : String,
@@ -55,9 +53,7 @@ service ControlService {
         severity        : String, // LOW, MEDIUM, HIGH — defaults to MEDIUM
         frequency       : String,
         cronExpression  : String, // only meaningful when frequency='CRON'
-        rules           : many ControlRuleEntry,
-        performedBy     : String, // acting user's email, for the audit log
-        performedByRole : String
+        rules           : many ControlRuleEntry
     ) returns {
         success : Boolean;
         message : String;
@@ -68,7 +64,6 @@ service ControlService {
     // replace (delete+reinsert), see control-service.js. System mapping is not
     // handled here — see SystemControlConfigService.
     action updateControl(
-        subdomain       : String,
         id              : String,
         description     : String,
         category        : String,
@@ -77,22 +72,20 @@ service ControlService {
         frequency       : String,
         cronExpression  : String,
         enabled         : Boolean,
-        rules           : many ControlRuleEntry,
-        performedBy     : String,
-        performedByRole : String
+        rules           : many ControlRuleEntry
     ) returns {
         success : Boolean;
         message : String;
     };
 
-    action deleteControl(subdomain: String, id: String, performedBy: String, performedByRole: String) returns {
+    action deleteControl(id: String) returns {
         success : Boolean;
         message : String;
     };
 
     // Manual trigger — calls lib/control_engine.runControl directly, doesn't
     // wait for the scheduler's next tick.
-    action runControlNow(subdomain: String, id: String, performedBy: String, performedByRole: String) returns {
+    action runControlNow(id: String) returns {
         success         : Boolean;
         message         : String;
         deviationsFound : Integer;
@@ -122,7 +115,6 @@ service ControlService {
     // into ControlRunHistory but never read back until now. Control is a
     // required filter, not just optional - see control-service.js.
     action listControlHistory(
-        subdomain : String,
         controlId : String,
         systemId  : String,
         client    : String,

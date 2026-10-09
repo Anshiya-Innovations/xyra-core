@@ -3,20 +3,18 @@ const {
   getPool,
   tenantEntities,
 } = require("../../lib/tenant/TenantPoolManager");
-const { resolveTenantBySubdomain } = require("../../lib/tenant/resolveTenant");
+const { activeTenant } = require("../../lib/tenant/TenantDirectory");
+const { ensureMembership, removeMembership } = require("../../lib/auth/identity");
 const { hashPassword } = require("../../lib/auth/password");
 
 const VALID_ROLES = ["REVIEWER", "ESCALATION_MANAGER", "AUDITOR"];
 
 module.exports = function (srv) {
   srv.on("listUsers", async (req) => {
-    const subdomain = (req.data.subdomain || "").trim();
-    if (!subdomain) return [];
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain);
-    if (!resolved) return [];
+    const { tenantId, databaseName } = req.user.attr;
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName);
+    const tenantDb = await getPool(tenantId, databaseName);
     const { Users, Roles, Organizations } = await tenantEntities();
 
     const tx = tenantDb.tx();
@@ -68,7 +66,6 @@ module.exports = function (srv) {
   srv.on("createUser", async (req) => {
     const fail = (message) => ({ success: false, message, userId: null });
 
-    const subdomain = (req.data.subdomain || "").trim();
     const name = (req.data.name || "").trim();
     const email = (req.data.email || "").trim();
     const password = req.data.password || "";
@@ -76,7 +73,6 @@ module.exports = function (srv) {
     const organization = (req.data.organization || "").trim();
 
     if (
-      !subdomain ||
       !name ||
       !email ||
       !password ||
@@ -88,13 +84,13 @@ module.exports = function (srv) {
     if (!VALID_ROLES.includes(roleCode))
       return fail("Admin accounts cannot be created here.");
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain);
-    if (!resolved) return fail("Tenant not found.");
+    const { tenantId, databaseName } = req.user.attr;
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName);
+    const tenantDb = await getPool(tenantId, databaseName);
     const { Users, Roles } = await tenantEntities();
 
     const tx = tenantDb.tx();
+    let ok = false;
     try {
       const existing = await tx.run(SELECT.one.from(Users).where({ email }));
       if (existing) return fail("A user with this email already exists.");
@@ -118,32 +114,38 @@ module.exports = function (srv) {
         }),
       );
 
+      // The master membership is what lets this user sign in — if it can't be
+      // written, roll back rather than leave a tenant user nobody can log in as.
+      await ensureMembership({ email, name, tenantId, tenantUserId: id, persona: roleCode });
+      ok = true;
       return { success: true, message: "User created.", userId: id };
     } finally {
-      await tx.commit();
+      await (ok ? tx.commit() : tx.rollback());
     }
   });
 
   srv.on("removeUser", async (req) => {
     const fail = (message) => ({ success: false, message });
 
-    const subdomain = (req.data.subdomain || "").trim();
     const userId = (req.data.userId || "").trim();
-    if (!subdomain || !userId) return fail("userId is required.");
+    if (!userId) return fail("userId is required.");
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain);
-    if (!resolved) return fail("Tenant not found.");
+    const { tenantId, databaseName } = req.user.attr;
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName);
+    const tenantDb = await getPool(tenantId, databaseName);
     const { Users } = await tenantEntities();
 
     const tx = tenantDb.tx();
     try {
       const user = await tx.run(SELECT.one.from(Users).where({ ID: userId }));
       if (!user) return fail("User not found.");
-      if (user.email === resolved.tenant.adminEmail)
+      const tenant = await activeTenant(tenantId);
+      if (tenant && user.email.toLowerCase() === String(tenant.adminEmail || "").toLowerCase())
         return fail("Cannot remove the tenant admin account.");
+      if (userId === req.user.attr.tenantUserId)
+        return fail("You cannot remove your own account.");
 
+      await removeMembership(tenantId, userId);
       await tx.run(DELETE.from(Users).where({ ID: userId }));
       return { success: true, message: "User removed." };
     } finally {
@@ -154,16 +156,14 @@ module.exports = function (srv) {
   srv.on("resetPassword", async (req) => {
     const fail = (message) => ({ success: false, message });
 
-    const subdomain = (req.data.subdomain || "").trim();
     const userId = (req.data.userId || "").trim();
     const newPassword = req.data.newPassword || "";
-    if (!subdomain || !userId || !newPassword)
+    if (!userId || !newPassword)
       return fail("userId and newPassword are required.");
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain);
-    if (!resolved) return fail("Tenant not found.");
+    const { tenantId, databaseName } = req.user.attr;
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName);
+    const tenantDb = await getPool(tenantId, databaseName);
     const { Users } = await tenantEntities();
 
     const tx = tenantDb.tx();

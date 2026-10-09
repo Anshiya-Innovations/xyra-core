@@ -13,6 +13,7 @@ using from './control/system-control-config-service';
 using from './review/review-service';
 using from './audit/audit-log-service';
 
+@requires: 'platform-admin'
 service PlatformService {
 
     entity Tenants as projection on db.Tenants;

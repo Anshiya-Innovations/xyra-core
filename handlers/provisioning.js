@@ -5,6 +5,7 @@ const { seedInitialData, createAdminUser } = require('../lib/provisioning/seed')
 const { dnsService } = require('../lib/provisioning/dns')
 const { markTenantActive } = require('../lib/provisioning/masterUpdate')
 const { logPlatformAudit } = require('../lib/platform')
+const { ensureMembership } = require('../lib/auth/identity')
 
 // ponytail: no real app infrastructure target exists yet — this is just what the
 // DNS record would point at once one does. Swap for the real LB/ingress hostname.
@@ -57,7 +58,7 @@ async function runProvisioning(tenantId, performedBy) {
 
   let step = 'CREATE_DATABASE'
   try {
-    const dbName = tenantDatabaseName(subdomain)
+    const dbName = tenantDatabaseName(tenantId)
     await createTenantDatabase(dbName)
     await updateJob(job.ID, { currentStep: step })
 
@@ -70,7 +71,8 @@ async function runProvisioning(tenantId, performedBy) {
     await updateJob(job.ID, { currentStep: step })
 
     step = 'CREATE_ADMIN'
-    await createAdminUser(tenantDb, { name: tenant.adminName, email: tenant.adminEmail })
+    const { user: adminUser } = await createAdminUser(tenantDb, { name: tenant.adminName, email: tenant.adminEmail })
+    await ensureMembership({ email: tenant.adminEmail, name: tenant.adminName, tenantId, tenantUserId: adminUser.ID, persona: 'ADMIN' })
     await updateJob(job.ID, { currentStep: step })
 
     step = 'CREATE_DNS'
@@ -94,7 +96,7 @@ async function runProvisioning(tenantId, performedBy) {
     return { success: false, message: `Provisioning failed at step ${step}: ${err.message}` }
   }
 
-  await logPlatformAudit(tenantId, 'TENANT_PROVISIONED', `Database ${tenantDatabaseName(subdomain)} ready.`, performedBy)
+  await logPlatformAudit(tenantId, 'TENANT_PROVISIONED', `Database ${tenantDatabaseName(tenantId)} ready.`, performedBy)
 
   // No password in the response — tenant sign-in is email-only (AuthService.login).
   return {

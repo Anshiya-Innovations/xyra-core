@@ -1,13 +1,8 @@
-// ponytail: same "subdomain in the request body" pattern as AuthService/AdminService
-// — no session/JWT layer exists yet, so every service takes the caller's identity
-// explicitly for now.
+@requires: 'tenant-user'
 @path: '/api/profile'
 service ProfileService {
 
-    action getProfile(
-        subdomain : String,
-        userId    : String
-    ) returns {
+    action getProfile() returns {
         success      : Boolean;
         message      : String;
         id           : String;
@@ -23,8 +18,6 @@ service ProfileService {
     // Deliberately no email field here — changing the login identifier is a
     // separate, carefully-verified flow (out of scope), not a plain profile edit.
     action updateProfile(
-        subdomain    : String,
-        userId       : String,
         name         : String,
         phone        : String,
         department   : String,
@@ -35,8 +28,6 @@ service ProfileService {
     };
 
     action changePassword(
-        subdomain       : String,
-        userId          : String,
         currentPassword : String,
         newPassword     : String
     ) returns {

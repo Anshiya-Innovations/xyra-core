@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other
-// services — no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/review'
 service ReviewService {
 
@@ -43,20 +42,20 @@ service ReviewService {
         escalationDue : Boolean;   // Level 2 only: overdue by more than the tenant's escalation delay - flag for Escalation Manager
     };
 
-    action listLevel1Queue(subdomain: String) returns { success: Boolean; message: String; reviews: many ReviewEntry; };
-    action listLevel2Queue(subdomain: String) returns { success: Boolean; message: String; reviews: many ReviewEntry; };
+    action listLevel1Queue() returns { success: Boolean; message: String; reviews: many ReviewEntry; };
+    action listLevel2Queue() returns { success: Boolean; message: String; reviews: many ReviewEntry; };
 
-    action listLevel1History(subdomain: String) returns { success: Boolean; message: String; reviews: many ReviewEntry; };
-    action listLevel2History(subdomain: String) returns { success: Boolean; message: String; reviews: many ReviewEntry; };
+    action listLevel1History() returns { success: Boolean; message: String; reviews: many ReviewEntry; };
+    action listLevel2History() returns { success: Boolean; message: String; reviews: many ReviewEntry; };
 
-    action getReviewDetail(subdomain: String, reviewId: String) returns {
+    action getReviewDetail(reviewId: String) returns {
         success : Boolean;
         message : String;
         review  : ReviewEntry;
     };
 
     // decision: APPROVE | REMEDIATE
-    action decideLevel1(subdomain: String, reviewId: String, decision: String, comment: String, actingUserId: String) returns {
+    action decideLevel1(reviewId: String, decision: String, comment: String) returns {
         success      : Boolean;
         message      : String;
         ticketNumber : String;
@@ -64,7 +63,7 @@ service ReviewService {
 
     // decision: APPROVE | REMEDIATE. APPROVE here is final closure - no third
     // review gate exists (SOP-8865 6.3.1.9).
-    action decideLevel2(subdomain: String, reviewId: String, decision: String, comment: String, actingUserId: String) returns {
+    action decideLevel2(reviewId: String, decision: String, comment: String) returns {
         success      : Boolean;
         message      : String;
         ticketNumber : String;

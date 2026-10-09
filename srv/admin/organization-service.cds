@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other services —
-// no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/organization'
 service OrganizationService {
 
@@ -18,20 +17,19 @@ service OrganizationService {
         createdAt      : Timestamp;
     };
 
-    action listOrganizations(subdomain: String) returns {
+    action listOrganizations() returns {
         success       : Boolean;
         message       : String;
         organizations : many OrganizationEntry;
     };
 
-    action getOrganization(subdomain: String, id: String) returns {
+    action getOrganization(id: String) returns {
         success      : Boolean;
         message      : String;
         organization : OrganizationEntry;
     };
 
     action createOrganization(
-        subdomain       : String,
         orgCode         : String,
         name            : String,
         industry        : String,
@@ -40,9 +38,7 @@ service OrganizationService {
         primaryContact  : String,
         email           : String,
         phone           : String,
-        status          : String,
-        performedBy     : String,
-        performedByRole : String
+        status          : String
     ) returns {
         success : Boolean;
         message : String;
@@ -50,7 +46,6 @@ service OrganizationService {
     };
 
     action updateOrganization(
-        subdomain       : String,
         id              : String,
         name            : String,
         industry        : String,
@@ -59,9 +54,7 @@ service OrganizationService {
         primaryContact  : String,
         email           : String,
         phone           : String,
-        status          : String,
-        performedBy     : String,
-        performedByRole : String
+        status          : String
     ) returns {
         success : Boolean;
         message : String;
@@ -71,7 +64,7 @@ service OrganizationService {
     // hangs off each one (control run history/logs, alerts, reviews), plus
     // JiraSettings, then the Organization row itself. Irreversible - the
     // frontend gates this behind a confirm dialog, not this action.
-    action deleteOrganization(subdomain: String, id: String, performedBy: String, performedByRole: String) returns {
+    action deleteOrganization(id: String) returns {
         success : Boolean;
         message : String;
     };
@@ -91,14 +84,13 @@ service OrganizationService {
         statusResolved   : String;
     };
 
-    action getJiraSettings(subdomain: String, organizationId: String) returns {
+    action getJiraSettings(organizationId: String) returns {
         success  : Boolean;
         message  : String;
         settings : JiraSettingsEntry;
     };
 
     action updateJiraSettings(
-        subdomain        : String,
         organizationId   : String,
         enabled          : Boolean,
         siteUrl          : String,
@@ -108,9 +100,7 @@ service OrganizationService {
         issueType        : String,
         statusCreated    : String,
         statusInProgress : String,
-        statusResolved   : String,
-        performedBy      : String,
-        performedByRole  : String
+        statusResolved   : String
     ) returns {
         success : Boolean;
         message : String;
@@ -124,7 +114,6 @@ service OrganizationService {
     // falls back to the saved one so re-browsing statuses doesn't force
     // re-pasting the token.
     action getJiraStatusOptions(
-        subdomain      : String,
         organizationId : String,
         siteUrl        : String,
         email          : String,

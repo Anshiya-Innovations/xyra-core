@@ -1,19 +1,15 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { hashPassword, verifyPassword } = require('../../lib/auth/password')
 
 module.exports = function (srv) {
   srv.on('getProfile', async (req) => {
     const fail = (message) => ({ success: false, message })
 
-    const subdomain = (req.data.subdomain || '').trim()
-    const userId = (req.data.userId || '').trim()
-    if (!subdomain || !userId) return fail('userId is required.')
+    const userId = req.user.attr.tenantUserId
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Users, Roles } = await tenantEntities()
 
     const tx = tenantDb.tx()
@@ -43,15 +39,13 @@ module.exports = function (srv) {
   srv.on('updateProfile', async (req) => {
     const fail = (message) => ({ success: false, message })
 
-    const subdomain = (req.data.subdomain || '').trim()
-    const userId = (req.data.userId || '').trim()
+    const userId = req.user.attr.tenantUserId
     const name = (req.data.name || '').trim()
-    if (!subdomain || !userId || !name) return fail('name is required.')
+    if (!name) return fail('name is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Users } = await tenantEntities()
 
     const tx = tenantDb.tx()
@@ -75,18 +69,16 @@ module.exports = function (srv) {
   srv.on('changePassword', async (req) => {
     const fail = (message) => ({ success: false, message })
 
-    const subdomain = (req.data.subdomain || '').trim()
-    const userId = (req.data.userId || '').trim()
+    const userId = req.user.attr.tenantUserId
     const currentPassword = req.data.currentPassword || ''
     const newPassword = req.data.newPassword || ''
-    if (!subdomain || !userId || !currentPassword || !newPassword) {
+    if (!currentPassword || !newPassword) {
       return fail('Current password and new password are required.')
     }
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Users } = await tenantEntities()
 
     const tx = tenantDb.tx()

@@ -1,6 +1,5 @@
 const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { logAudit } = require('../../lib/audit')
 const { deleteSystemCascade } = require('../../lib/admin/cascadeDelete')
 const { listProjectStatuses } = require('../../lib/ticketing/jira')
@@ -25,13 +24,10 @@ function toEntry(o, systemCount) {
 module.exports = function (srv) {
   srv.on('listOrganizations', async (req) => {
     const fail = (message) => ({ success: false, message, organizations: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Organizations, Systems } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -53,14 +49,12 @@ module.exports = function (srv) {
 
   srv.on('getOrganization', async (req) => {
     const fail = (message) => ({ success: false, message, organization: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Organizations, Systems } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -76,15 +70,13 @@ module.exports = function (srv) {
 
   srv.on('createOrganization', async (req) => {
     const fail = (message) => ({ success: false, message, id: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const orgCode = (req.data.orgCode || '').trim()
     const name = (req.data.name || '').trim()
-    if (!subdomain || !orgCode || !name) return fail('Organization ID and Company Name are required.')
+    if (!orgCode || !name) return fail('Organization ID and Company Name are required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Organizations } = entities
     const tx = tenantDb.tx()
@@ -113,8 +105,8 @@ module.exports = function (srv) {
         objectId: orgCode,
         objectLabel: `${orgCode} (${name})`,
         description: `Added Organization '${orgCode}' (${name}).`,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Organization created.', id }
@@ -125,14 +117,12 @@ module.exports = function (srv) {
 
   srv.on('updateOrganization', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Organizations } = entities
     const tx = tenantDb.tx()
@@ -158,8 +148,8 @@ module.exports = function (srv) {
         objectId: existing.orgCode,
         objectLabel: `${existing.orgCode} (${existing.name})`,
         description: `Updated Organization '${existing.orgCode}'.`,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Organization updated.' }
@@ -175,14 +165,12 @@ module.exports = function (srv) {
   // plus JiraSettings, then the Organization row itself.
   srv.on('deleteOrganization', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Organizations, Systems, JiraSettings } = entities
     const tx = tenantDb.tx()
@@ -208,8 +196,8 @@ module.exports = function (srv) {
         objectId: existing.orgCode,
         objectLabel: `${existing.orgCode} (${existing.name})`,
         description: `Deleted Organization '${existing.orgCode}' (${existing.name}) and its ${systems.length} system(s), including all associated control runs, alerts, reviews and history.`,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Organization deleted.' }
@@ -220,14 +208,12 @@ module.exports = function (srv) {
 
   srv.on('getJiraSettings', async (req) => {
     const fail = (message) => ({ success: false, message, settings: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const organizationId = (req.data.organizationId || '').trim()
-    if (!subdomain || !organizationId) return fail('organizationId is required.')
+    if (!organizationId) return fail('organizationId is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { JiraSettings } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -254,14 +240,12 @@ module.exports = function (srv) {
 
   srv.on('updateJiraSettings', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const organizationId = (req.data.organizationId || '').trim()
-    if (!subdomain || !organizationId) return fail('organizationId is required.')
+    if (!organizationId) return fail('organizationId is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { JiraSettings, Organizations } = entities
     const tx = tenantDb.tx()
@@ -297,8 +281,8 @@ module.exports = function (srv) {
         objectId: org.orgCode,
         objectLabel: `Jira Integration - ${org.orgCode}`,
         description: `Updated Jira integration settings for '${org.orgCode}' (${patch.enabled ? 'enabled' : 'disabled'}, project ${patch.projectKey || 'none'}).`,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Jira settings updated.' }
@@ -309,8 +293,6 @@ module.exports = function (srv) {
 
   srv.on('getJiraStatusOptions', async (req) => {
     const fail = (message) => ({ success: false, message, statuses: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
     const siteUrl = (req.data.siteUrl || '').trim()
     const email = (req.data.email || '').trim()
@@ -322,17 +304,15 @@ module.exports = function (srv) {
     // statuses doesn't force re-pasting the token every time.
     const organizationId = (req.data.organizationId || '').trim()
     if (!apiToken && organizationId) {
-      const resolved = await resolveTenantBySubdomain(req, subdomain)
-      if (resolved) {
-        const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
-        const { JiraSettings } = await tenantEntities()
-        const tx = tenantDb.tx()
-        try {
-          const row = await tx.run(SELECT.one.from(JiraSettings).where({ organization_ID: organizationId }))
-          if (row && row.apiToken) apiToken = row.apiToken
-        } finally {
-          await tx.commit()
-        }
+      const { tenantId, databaseName } = req.user.attr
+      const tenantDb = await getPool(tenantId, databaseName)
+      const { JiraSettings } = await tenantEntities()
+      const tx = tenantDb.tx()
+      try {
+        const row = await tx.run(SELECT.one.from(JiraSettings).where({ organization_ID: organizationId }))
+        if (row && row.apiToken) apiToken = row.apiToken
+      } finally {
+        await tx.commit()
       }
     }
 

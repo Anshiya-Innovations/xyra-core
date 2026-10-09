@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other
-// services — no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/notifications'
 service NotificationService {
 
@@ -17,18 +16,18 @@ service NotificationService {
         createdAt    : Timestamp;
     };
 
-    action listNotifications(subdomain: String) returns {
+    action listNotifications() returns {
         success       : Boolean;
         message       : String;
         notifications : many NotificationEntry;
     };
 
-    action markAsRead(subdomain: String, id: String) returns {
+    action markAsRead(id: String) returns {
         success : Boolean;
         message : String;
     };
 
-    action clearAll(subdomain: String) returns {
+    action clearAll() returns {
         success : Boolean;
         message : String;
     };

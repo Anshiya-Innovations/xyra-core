@@ -1,5 +1,4 @@
-// ponytail: same "subdomain in the request body" pattern as the other
-// services — no session/JWT layer yet.
+@requires: 'tenant-user'
 @path: '/api/deviation'
 service DeviationService {
 
@@ -48,7 +47,6 @@ service DeviationService {
     };
 
     action listDeviations(
-        subdomain      : String,
         organizationId : String,
         sector    : String,
         region    : String,
@@ -66,7 +64,7 @@ service DeviationService {
         kpi     : KpiSummary;
     };
 
-    action getDeviationDetail(subdomain: String, alertId: String) returns {
+    action getDeviationDetail(alertId: String) returns {
         success : Boolean;
         message : String;
         header  : AlertHeaderEntry;
@@ -74,7 +72,7 @@ service DeviationService {
     };
 
     // AlertItem page's "Logs" dialog.
-    action getRunLogs(subdomain: String, alertId: String) returns {
+    action getRunLogs(alertId: String) returns {
         success : Boolean;
         message : String;
         logs    : many LogEntry;
@@ -105,7 +103,7 @@ service DeviationService {
     // AI Insights page: the raw material for compliance recommendations -
     // the score's numerator/denominator plus a per-rule breakdown, so the
     // page can say exactly which checks are dragging the score down.
-    action getComplianceInsights(subdomain: String) returns {
+    action getComplianceInsights() returns {
         success      : Boolean;
         message      : String;
         totalChecks  : Integer;
@@ -114,7 +112,7 @@ service DeviationService {
     };
 
     // AutomationMonitoring page's "Logs" dialog — controlId is Controls.code.
-    action getControlLogs(subdomain: String, controlId: String, limit: Integer) returns {
+    action getControlLogs(controlId: String, limit: Integer) returns {
         success : Boolean;
         message : String;
         logs    : many LogEntry;

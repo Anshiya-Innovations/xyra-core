@@ -1,22 +1,51 @@
 @path: '/api/auth'
 service AuthService {
 
-    // Email-only login, pending SSO integration — resolves the tenant from
-    // `subdomain`, then checks whether an active user with that email exists
-    // in that tenant's own Users table. No password: this is an intentional,
-    // temporary trust boundary until the SSO button replaces this form
-    // entirely. No session token yet — nothing downstream needs to verify one
-    // until there are other authenticated endpoints to protect.
+    // Tenant = the hostname the user signed in on (acme.xyra-ccm.com). `subdomain`
+    // is honored ONLY when DEV_MODE=true (localhost has no tenant subdomain).
+    // Membership + persona are checked against xyra.master.Memberships; on
+    // success a signed session token is returned and every other API call
+    // derives tenant/user/persona from it.
+    //
+    // ponytail: email + persona only — nothing proves the caller owns the
+    // email yet. Add OTP/SSO verification inside the login handler; the token
+    // and everything downstream stay unchanged.
     action login(
-        subdomain : String,
-        email     : String
+        email     : String,
+        persona   : String,
+        subdomain : String
     ) returns {
         success  : Boolean;
         message  : String;
+        token    : String;
         tenantId : String;
         userId   : String;
         name     : String;
         email    : String;
+        role     : String;
+    };
+
+    // Workspaces (tenants) the signed-in user is an active member of.
+    @requires: 'tenant-user'
+    action listMyTenants() returns {
+        success : Boolean;
+        message : String;
+        tenants : many {
+            tenantId    : String;
+            companyName : String;
+            domain      : String;
+            persona     : String;
+        };
+    };
+
+    // Issues a token for another tenant ONLY if the signed-in user holds an
+    // active membership there — the tenantId here is a request, never trusted.
+    @requires: 'tenant-user'
+    action switchTenant(tenantId : String) returns {
+        success  : Boolean;
+        message  : String;
+        token    : String;
+        domain   : String;
         role     : String;
     };
 

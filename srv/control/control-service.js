@@ -1,6 +1,5 @@
 const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { runControl } = require('../../lib/control_engine')
 const { logAudit } = require('../../lib/audit')
 
@@ -98,13 +97,10 @@ function normalizeSeverity(severity) {
 module.exports = function (srv) {
   srv.on('listControls', async (req) => {
     const fail = (message) => ({ success: false, message, controls: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Controls, ControlRules, ControlSystemConfig } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -127,14 +123,12 @@ module.exports = function (srv) {
 
   srv.on('getControl', async (req) => {
     const fail = (message) => ({ success: false, message, control: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Controls, ControlRules, ControlSystemConfig } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -148,15 +142,13 @@ module.exports = function (srv) {
 
   srv.on('createControl', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const code = (req.data.code || '').trim()
     const description = (req.data.description || '').trim()
-    if (!subdomain || !code || !description) return fail('Control ID and Description are required.')
+    if (!code || !description) return fail('Control ID and Description are required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, ControlRules } = entities
     const tx = tenantDb.tx()
@@ -186,8 +178,8 @@ module.exports = function (srv) {
         objectLabel: code,
         description: `Created Security Control Master rule '${code}': ${description}`,
         controlId: code,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Control created.', id }
@@ -198,14 +190,12 @@ module.exports = function (srv) {
 
   srv.on('updateControl', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, ControlRules } = entities
     const tx = tenantDb.tx()
@@ -237,8 +227,8 @@ module.exports = function (srv) {
         previousValue: `Desc: ${existing.description} | Freq: ${existing.frequency}`,
         newValue: `Desc: ${sNewDesc} | Freq: ${sNewFreq}`,
         controlId: existing.code,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Control updated.' }
@@ -249,14 +239,12 @@ module.exports = function (srv) {
 
   srv.on('deleteControl', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Controls, ControlRules, ControlSystemConfig } = entities
     const tx = tenantDb.tx()
@@ -279,8 +267,8 @@ module.exports = function (srv) {
         objectLabel: existing.code,
         description: `Deleted Security Control Master rule '${existing.code}': ${existing.description}`,
         controlId: existing.code,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'Control deleted.' }
@@ -291,20 +279,18 @@ module.exports = function (srv) {
 
   srv.on('runControlNow', async (req) => {
     const fail = (message) => ({ success: false, message, deviationsFound: null, alertsCreated: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const result = await runControl(resolved.tenant.ID, resolved.databaseName, id)
+    const result = await runControl(tenantId, databaseName, id)
 
     // runControl manages its own tx internally and doesn't expose one to
     // piggyback on - open a small separate one just for the audit row, after
     // the real run already succeeded.
     if (result && result.success) {
-      const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+      const tenantDb = await getPool(tenantId, databaseName)
       const entities = await tenantEntities()
       const tx = tenantDb.tx()
       try {
@@ -318,8 +304,8 @@ module.exports = function (srv) {
           objectLabel: code,
           description: `Ran Security Control Master rule '${code}' now: ${result.systemsChecked} system(s) checked, ${result.deviationsFound} deviation(s) found, ${result.alertsCreated} alert(s) created.`,
           controlId: code,
-          performedBy: req.data.performedBy,
-          performedByRole: req.data.performedByRole
+          performedBy: req.user.attr.email,
+          performedByRole: req.user.attr.persona
         })
       } finally {
         await tx.commit()
@@ -331,14 +317,12 @@ module.exports = function (srv) {
 
   srv.on('listControlHistory', async (req) => {
     const fail = (message) => ({ success: false, message, history: [] })
-    const subdomain = (req.data.subdomain || '').trim()
     const controlId = (req.data.controlId || '').trim()
-    if (!subdomain || !controlId) return fail('Please select a Control.')
+    if (!controlId) return fail('Please select a Control.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Controls, Systems, ControlRunHistory } = await tenantEntities()
     const tx = tenantDb.tx()
     try {

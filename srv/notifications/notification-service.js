@@ -1,16 +1,12 @@
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const notificationEngine = require('../../lib/notification_engine')
 
 module.exports = function (srv) {
   srv.on('listNotifications', async (req) => {
     const fail = (message) => ({ success: false, message, notifications: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const rows = await notificationEngine.listNotifications(resolved.tenant.ID, resolved.databaseName)
+    const rows = await notificationEngine.listNotifications(tenantId, databaseName)
     return {
       success: true,
       message: 'OK',
@@ -32,24 +28,19 @@ module.exports = function (srv) {
 
   srv.on('markAsRead', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    return notificationEngine.markAsRead(resolved.tenant.ID, resolved.databaseName, id)
+    return notificationEngine.markAsRead(tenantId, databaseName, id)
   })
 
   srv.on('clearAll', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    return notificationEngine.clearAll(resolved.tenant.ID, resolved.databaseName)
+    return notificationEngine.clearAll(tenantId, databaseName)
   })
 }

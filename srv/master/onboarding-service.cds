@@ -1,3 +1,4 @@
+@requires: 'platform-admin'
 @path: '/api/onboarding'
 service OnboardingService {
 

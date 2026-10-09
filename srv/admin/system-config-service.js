@@ -1,6 +1,5 @@
 const cds = require('@sap/cds')
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { testConnection } = require('../../lib/connection_engine')
 const { notify } = require('../../lib/notification_engine')
 const { logAudit } = require('../../lib/audit')
@@ -49,13 +48,10 @@ function titleCase(s) {
 module.exports = function (srv) {
   srv.on('listSystems', async (req) => {
     const fail = (message) => ({ success: false, message, systems: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Systems } = await tenantEntities()
 
     const tx = tenantDb.tx()
@@ -102,12 +98,11 @@ module.exports = function (srv) {
 
   srv.on('createSystem', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const sysId = (req.data.sysId || '').trim()
     const client = (req.data.client || '').trim()
     const hostName = (req.data.hostName || '').trim()
     const organizationId = (req.data.organizationId || '').trim()
-    if (!subdomain || !sysId || !client || !hostName || !organizationId) {
+    if (!sysId || !client || !hostName || !organizationId) {
       return fail('System ID, Client, Host Name, and Organization are required.')
     }
     // Systems.systemId/client are varchar(3) (real SAP SID/client width) -
@@ -116,10 +111,9 @@ module.exports = function (srv) {
     if (sysId.length > 3) return fail('System ID (SID) must be at most 3 characters.')
     if (client.length > 3) return fail('Client must be at most 3 characters.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Systems, SystemCredentials, Regions, Platforms, Sectors, Organizations } = entities
 
@@ -161,7 +155,7 @@ module.exports = function (srv) {
       await upsertCredentials(tx, SystemCredentials, id, (req.data.credUserId || '').trim(), req.data.credPassword || '')
 
       // Best-effort — a notification failure shouldn't block system creation.
-      notify(resolved.tenant.ID, resolved.databaseName, {
+      notify(tenantId, databaseName, {
         title: 'SAP System Added',
         message: `System ${sysId} (Client ${client}) was added to the landscape.`,
         category: 'TASK',
@@ -180,8 +174,8 @@ module.exports = function (srv) {
         objectLabel: `${sysId} (${client})`,
         description: `Added SAP System '${sysId}' (Client ${client}) to the landscape.`,
         systemId: sysId,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'System created.', id }
@@ -192,16 +186,14 @@ module.exports = function (srv) {
 
   srv.on('updateSystem', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
     const client = (req.data.client || '').trim()
     if (client && client.length > 3) return fail('Client must be at most 3 characters.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Systems, SystemCredentials, Regions, Platforms, Sectors, Organizations } = entities
 
@@ -251,8 +243,8 @@ module.exports = function (srv) {
         previousValue: `Host: ${existing.hostName} | Tier: ${existing.tier}`,
         newValue: `Host: ${req.data.hostName || existing.hostName} | Tier: ${(req.data.sysType || existing.tier || 'QUALITY').toUpperCase()}`,
         systemId: existing.systemId,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'System updated.' }
@@ -263,14 +255,12 @@ module.exports = function (srv) {
 
   srv.on('deleteSystem', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { Systems } = entities
 
@@ -290,8 +280,8 @@ module.exports = function (srv) {
         objectLabel: `${existing.systemId} (${existing.client})`,
         description: `Deleted SAP System '${existing.systemId}' (Client ${existing.client}) from the landscape.`,
         systemId: existing.systemId,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'System deleted.' }
@@ -302,17 +292,15 @@ module.exports = function (srv) {
 
   srv.on('testSystemConnection', async (req) => {
     const fail = (message) => ({ success: false, message, statusCode: null, latencyMs: null })
-    const subdomain = (req.data.subdomain || '').trim()
     const id = (req.data.id || '').trim()
-    if (!subdomain || !id) return fail('id is required.')
+    if (!id) return fail('id is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const result = await testConnection(resolved.tenant.ID, resolved.databaseName, id)
+    const result = await testConnection(tenantId, databaseName, id)
     const newStatus = result.success ? 'ONLINE' : 'OFFLINE'
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { Systems } = await tenantEntities()
     const tx = tenantDb.tx()
     let previousStatus
@@ -329,7 +317,7 @@ module.exports = function (srv) {
     // Refresh or Test All Connections re-checked an already-known-offline system.
     if (newStatus === 'OFFLINE' && previousStatus !== 'OFFLINE') {
       // Best-effort — a notification failure shouldn't affect the test result.
-      notify(resolved.tenant.ID, resolved.databaseName, {
+      notify(tenantId, databaseName, {
         title: 'SAP System Offline',
         message: result.message,
         category: 'TASK',
@@ -345,13 +333,10 @@ module.exports = function (srv) {
 
   srv.on('getSlaSettings', async (req) => {
     const fail = (message) => ({ success: false, message, settings: null })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { SlaSettings } = await tenantEntities()
     const tx = tenantDb.tx()
     try {
@@ -369,8 +354,6 @@ module.exports = function (srv) {
 
   srv.on('updateSlaSettings', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
     const patch = {}
     for (const f of SLA_FIELDS) {
@@ -379,10 +362,9 @@ module.exports = function (srv) {
       patch[f] = n
     }
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const { SlaSettings } = entities
     const tx = tenantDb.tx()
@@ -399,11 +381,11 @@ module.exports = function (srv) {
         action: 'SLA_SETTINGS_UPDATE',
         module: 'System Configuration',
         objectType: 'SlaSettings',
-        objectId: subdomain,
+        objectId: tenantId,
         objectLabel: 'Review SLA Settings',
         description: `Updated review SLA windows: Reviewer 1 ${patch.reviewer1Days}d, Reviewer 2 ${patch.reviewer2Days}d, Escalation delay ${patch.escalationDelayDays}d.`,
-        performedBy: req.data.performedBy,
-        performedByRole: req.data.performedByRole
+        performedBy: req.user.attr.email,
+        performedByRole: req.user.attr.persona
       })
 
       return { success: true, message: 'SLA settings updated.' }

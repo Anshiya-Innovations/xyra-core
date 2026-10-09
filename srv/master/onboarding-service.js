@@ -82,7 +82,7 @@ module.exports = function (srv) {
       return fail('A conflicting tenant record already exists.')
     }
 
-    await logPlatformAudit(tenantId, 'TENANT_CREATED', `${companyName} (${fullDomain}), plan ${planCode}, admin ${adminEmail}`, req.headers['x-platform-admin'])
+    await logPlatformAudit(tenantId, 'TENANT_CREATED', `${companyName} (${fullDomain}), plan ${planCode}, admin ${adminEmail}`, req.user.attr.email)
 
     return {
       success: true,

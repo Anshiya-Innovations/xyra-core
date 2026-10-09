@@ -1,5 +1,4 @@
 const { getPool, tenantEntities } = require('../../lib/tenant/TenantPoolManager')
-const { resolveTenantBySubdomain } = require('../../lib/tenant/resolveTenant')
 const { logAudit } = require('../../lib/audit')
 
 function toEntry(r) {
@@ -25,20 +24,17 @@ function toEntry(r) {
 module.exports = function (srv) {
   srv.on('logEvent', async (req) => {
     const fail = (message) => ({ success: false, message })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
     if (!req.data.action || !req.data.module || !req.data.description) {
       return fail('action, module and description are required.')
     }
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const entities = await tenantEntities()
     const tx = tenantDb.tx()
     try {
-      await logAudit(tx, entities, req.data)
+      await logAudit(tx, entities, { ...req.data, performedBy: req.user.attr.email, performedByRole: req.user.attr.persona })
       return { success: true, message: 'OK' }
     } finally {
       await tx.commit()
@@ -47,13 +43,10 @@ module.exports = function (srv) {
 
   srv.on('listAuditLogs', async (req) => {
     const fail = (message) => ({ success: false, message, logs: [] })
-    const subdomain = (req.data.subdomain || '').trim()
-    if (!subdomain) return fail('subdomain is required.')
 
-    const resolved = await resolveTenantBySubdomain(req, subdomain)
-    if (!resolved) return fail('Tenant not found.')
+    const { tenantId, databaseName } = req.user.attr
 
-    const tenantDb = await getPool(resolved.tenant.ID, resolved.databaseName)
+    const tenantDb = await getPool(tenantId, databaseName)
     const { AuditLogs } = await tenantEntities()
     const tx = tenantDb.tx()
     try {

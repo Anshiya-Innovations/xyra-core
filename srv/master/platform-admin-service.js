@@ -1,6 +1,8 @@
 const cds = require('@sap/cds')
 const { logPlatformAudit } = require('../../lib/platform')
 const { clearTenantCache } = require('../../lib/tenant/resolveTenant')
+const TenantDirectory = require('../../lib/tenant/TenantDirectory')
+const { getStats } = require('../../lib/tenant/TenantPoolManager')
 
 const byTenant = (rows) => new Map(rows.map((r) => [r.tenant_ID, r]))
 
@@ -62,9 +64,11 @@ module.exports = function (srv) {
     }
 
     await UPDATE(Tenants).set({ status }).where({ ID: tenantId })
-    // Resolver caches ACTIVE lookups for 60s — drop it so a suspension bites now.
+    // Takes effect on this instance's very next request (live sessions included) —
+    // other instances follow within TenantDirectory's refresh interval.
+    TenantDirectory.setStatus(tenantId, status)
     clearTenantCache()
-    await logPlatformAudit(tenantId, status === 'ACTIVE' ? 'TENANT_REACTIVATED' : 'TENANT_SUSPENDED', tenant.companyName, req.headers['x-platform-admin'])
+    await logPlatformAudit(tenantId, status === 'ACTIVE' ? 'TENANT_REACTIVATED' : 'TENANT_SUSPENDED', tenant.companyName, req.user.attr.email)
     return { success: true, message: `${tenant.companyName} is now ${status}.` }
   })
 
@@ -97,4 +101,6 @@ module.exports = function (srv) {
       }))
     }
   })
+
+  srv.on('getPoolStats', () => ({ success: true, message: '', stats: JSON.stringify(getStats()) }))
 }

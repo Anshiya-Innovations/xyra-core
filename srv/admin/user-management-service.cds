@@ -1,12 +1,8 @@
-// ponytail: same "subdomain in the request body" pattern as AuthService — no
-// session/JWT layer exists yet (see the architecture discussion this session),
-// so every service that needs to know "which tenant" takes it explicitly for now.
+@requires: 'ADMIN'
 @path: '/api/admin'
 service AdminService {
 
-    action listUsers(
-        subdomain : String
-    ) returns array of {
+    action listUsers() returns array of {
         id        : String;
         name      : String;
         email     : String;
@@ -17,7 +13,6 @@ service AdminService {
     };
 
     action createUser(
-        subdomain : String,
         name      : String,
         email     : String,
         password  : String,
@@ -30,7 +25,6 @@ service AdminService {
     };
 
     action removeUser(
-        subdomain : String,
         userId    : String
     ) returns {
         success : Boolean;
@@ -38,7 +32,6 @@ service AdminService {
     };
 
     action resetPassword(
-        subdomain   : String,
         userId      : String,
         newPassword : String
     ) returns {

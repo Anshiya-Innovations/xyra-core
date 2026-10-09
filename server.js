@@ -1,5 +1,12 @@
 const cds = require('@sap/cds')
+const express = require('express')
 const { runProvisioning, getProvisioningStatus } = require('./handlers/provisioning')
+const { sign, verify, bearer } = require('./lib/auth/token')
+const { verifyPassword } = require('./lib/auth/password')
+const { issuePlatformToken, normEmail } = require('./lib/auth/identity')
+
+// Fail at boot, not on the first login, if the signing secret is missing.
+sign({}, 1)
 
 // Path-parameterized REST routes (POST/GET /api/provisioning/:tenantId, POST .../retry)
 // can't be expressed as CDS actions — those are fixed-name, no dynamic URL segments —
@@ -12,6 +19,11 @@ const { runProvisioning, getProvisioningStatus } = require('./handlers/provision
 const DEV_MODE = process.env.DEV_MODE === 'true'
 
 cds.on('bootstrap', (app) => {
+  // Opt-in latency tracing (PERF_TRACE=true) — must be the first middleware so
+  // "request received" is really the start. See lib/perf/trace.js.
+  const perf = require('./lib/perf/trace')
+  if (perf.ENABLED) app.use(perf.install(cds.env.requires.db.credentials.database))
+
   // xyra-web is a separate server/module (different origin), so every call it makes
   // here is cross-origin. CAP's built-in cds.server.cors handler doesn't set
   // Access-Control-Allow-Headers, so a JSON POST (application/json isn't a CORS
@@ -27,24 +39,36 @@ cds.on('bootstrap', (app) => {
     next()
   })
 
-  // Platform-admin routes (xyra-admin) — email-only sign-in, same interim trust
-  // model as tenant AuthService.login (pending real SSO): the x-platform-admin
-  // header must carry an email listed in PLATFORM_ADMIN_EMAILS (comma-separated).
-  // Unset = these routes are off entirely, never open.
-  // ponytail: an email alone is guessable — swap for an SSO-issued token when
-  // tenant SSO lands; this guard is the one place to change.
-  const adminEmails = (process.env.PLATFORM_ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
-  app.use(['/api/platform', '/api/onboarding', '/api/provisioning', '/odata/v4/platform'], (req, res, next) => {
-    if (!adminEmails.length) return res.status(503).json({ success: false, message: 'Platform admin is disabled (PLATFORM_ADMIN_EMAILS not set).' })
-    if (!adminEmails.includes(String(req.headers['x-platform-admin'] || '').trim().toLowerCase())) {
-      return res.status(401).json({ success: false, message: 'This email is not a platform admin.' })
+  // Platform-admin sign-in (xyra-admin): email + password against
+  // xyra.master.PlatformAdmins, returns a token with the platformAdmin claim.
+  // Create admins with scripts/create-platform-admin.js.
+  app.post('/api/platform-auth/login', express.json(), async (req, res) => {
+    try {
+      const { PlatformAdmins } = cds.entities('xyra.master')
+      const admin = await SELECT.one.from(PlatformAdmins).where({ email: normEmail(req.body?.email), status: 'ACTIVE' })
+      if (!admin || !(await verifyPassword(String(req.body?.password || ''), admin.passwordHash))) {
+        return res.status(401).json({ success: false, message: 'Invalid email or password.' })
+      }
+      res.json({ success: true, token: issuePlatformToken(admin), email: admin.email, name: admin.name })
+    } catch (err) {
+      console.error('platform-auth/login failed:', err)
+      res.status(500).json({ success: false, message: 'Sign-in failed. Please try again.' })
     }
+  })
+
+  // Every platform route needs a platform-admin token. The CAP services behind
+  // these paths also declare @requires: 'platform-admin'; this gate is what
+  // covers the plain express provisioning routes below.
+  app.use(['/api/platform', '/api/onboarding', '/api/provisioning', '/odata/v4/platform'], (req, res, next) => {
+    const claims = verify(bearer(req))
+    if (!claims || !claims.platformAdmin) return res.status(401).json({ success: false, message: 'Platform admin sign-in required.' })
+    req.platformAdmin = claims
     next()
   })
 
   const wrap = (fn) => async (req, res) => {
     try {
-      res.json(await fn(req.params.tenantId, req.headers['x-platform-admin']))
+      res.json(await fn(req.params.tenantId, req.platformAdmin.email))
     } catch (err) {
       res.status(500).json({ success: false, message: err.message })
     }
@@ -58,6 +82,7 @@ cds.on('bootstrap', (app) => {
 // 'served', not 'bootstrap' - the master DB connection and cds.entities('xyra.master')
 // aren't guaranteed to exist yet at bootstrap time.
 cds.on('served', () => {
+  require('./lib/tenant/TenantDirectory').start()
   require('./lib/control_scheduler').start()
   require('./lib/sla_reminder').start()
   require('./lib/ticketing/jiraSync').start()

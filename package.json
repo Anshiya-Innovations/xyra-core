@@ -23,7 +23,8 @@
       },
       "auth": {
         "kind": "custom",
-        "impl": "lib/auth/middleware.js"
+        "impl": "lib/auth/middleware.js",
+        "restrict_all_services": false
       }
     },
     "server": {

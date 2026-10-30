@@ -1,4 +1,5 @@
 @path: '/api/auth'
+@(requires: 'any')
 service AuthService {
 
     // Tenant = the hostname the user signed in on (acme.xyra-ccm.com). `subdomain`
@@ -10,6 +11,7 @@ service AuthService {
     // ponytail: email + persona only — nothing proves the caller owns the
     // email yet. Add OTP/SSO verification inside the login handler; the token
     // and everything downstream stay unchanged.
+    @(requires: 'any')
     action login(
         email     : String,
         persona   : String,

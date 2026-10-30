@@ -10,7 +10,7 @@
     "@sap/cds-dk": "^10.0.6"
   },
   "scripts": {
-    "copy-custom-lib": "cp -R lib gen/srv/lib",
+    "copy-custom-lib": "cp -R lib gen/srv/lib && mkdir -p gen/srv/db/tenant && cp -R db/tenant/. gen/srv/db/tenant/",
     "start": "cds-serve"
   },
   "cds": {

@@ -10,13 +10,16 @@
     "@sap/cds-dk": "^10.0.6"
   },
   "scripts": {
-    "start": "cds watch"
+    "copy-custom-lib": "cp -R lib gen/srv/lib",
+    "start": "cds-serve"
   },
   "cds": {
     "requires": {
       "db": {
         "kind": "postgres",
-        "pool": { "acquireTimeoutMillis": 10000 }
+        "pool": {
+          "acquireTimeoutMillis": 10000
+        }
       },
       "auth": {
         "kind": "custom",

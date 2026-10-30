@@ -1,0 +1,16 @@
+---
+applications:
+  - name: xyra-core
+    memory: 512M
+    disk_quota: 1024M
+    buildpacks:
+      - nodejs_buildpack
+    command: npm start
+    env:
+      NODE_ENV: production
+      DEV_MODE: "true"
+      ALLOW_CORS: "true"
+      JWT_SECRET: _80VkaMk3BAnlMZ5iMx1eLBUbW72GTEeIW2Eg_PWQkM-ycmB_Wd6KFPCwABmED7c
+      CDS_CONFIG: >-
+        {"requires":{"db":{"kind":"postgres","credentials":{"host":"database-1.cwpka6uuuujw.us-east-1.rds.amazonaws.com","port":5432,"user":"root","password":"Anshiya2026","database":"xyra_master","ssl":{"rejectUnauthorized":false}}}}}
+

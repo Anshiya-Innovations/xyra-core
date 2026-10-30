@@ -31,11 +31,23 @@ cds.on('bootstrap', (app) => {
   // by the browser on the actual request — this replaces it with a complete handler.
   app.use((req, res, next) => {
     const origin = req.headers.origin
-    if (!DEV_MODE || !origin) return next()
-    res.set('Access-Control-Allow-Origin', origin)
-    res.set('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS')
-    res.set('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type')
-    if (req.method === 'OPTIONS') return res.status(204).end()
+    if (!origin) return next()
+
+    // Open CORS in DEV_MODE, when explicitly requested, or for Cloud Foundry & localhost origins
+    const isAllowed =
+      DEV_MODE ||
+      process.env.ALLOW_CORS === 'true' ||
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1') ||
+      origin.includes('hana.ondemand.com') ||
+      origin.includes('xyra')
+
+    if (isAllowed) {
+      res.set('Access-Control-Allow-Origin', origin)
+      res.set('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS')
+      res.set('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization')
+      if (req.method === 'OPTIONS') return res.status(204).end()
+    }
     next()
   })
 

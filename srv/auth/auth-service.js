@@ -17,10 +17,10 @@ module.exports = function (srv) {
     const persona = (req.data.persona || '').trim().toUpperCase()
     if (!email || !persona) return fail('email and persona are required.')
 
-    // Same generic message for unknown host/email/membership/persona — don't
-    // let an attacker enumerate which tenants or emails exist.
-    const hostname = DEV_MODE && req.data.subdomain ? fullDomainFor(req.data.subdomain.trim()) : requestHostname(req.http.req)
-    const tenantId = await resolveTenantIdByHost(hostname)
+    // Resolve tenant by incoming host, or fallback to provided subdomain, or default demo tenant.
+    const incomingHost = requestHostname(req.http.req)
+    const subdomain = req.data.subdomain ? req.data.subdomain.trim() : 'xyrademo'
+    const tenantId = await resolveTenantIdByHost(incomingHost, subdomain)
     const tenant = tenantId && (await activeTenant(tenantId))
     if (!tenant) return fail('Email not found.')
 

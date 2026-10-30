@@ -1,0 +1,16 @@
+{
+  "requires": {
+    "db": {
+      "kind": "postgres",
+      "credentials": {
+        "host": "database-1.cwpka6uuuujw.us-east-1.rds.amazonaws.com",
+        "port": 5432,
+        "user": "root",
+        "password": "Anshiya2026",
+        "database": "xyra_master",
+        "ssl": { "rejectUnauthorized": false }
+      }
+    }
+  }
+}
+
